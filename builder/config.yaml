@@ -1,0 +1,9 @@
+name: Bambu Bridge Builder
+version: "1.0.1"
+slug: bambu_bridge_builder
+description: One-shot build of the Bambu Sender bridge for x86_64; copies it to /share/bambu_build
+arch: [aarch64]
+startup: once
+boot: manual
+init: false
+map: ["share:rw"]
