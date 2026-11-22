@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
-from .conftest import PRINTER, SERIAL, URL, mock_addon, setup_entry
+from .conftest import GOOD, PRINTER, SERIAL, URL, make_3mf, mock_addon, setup_entry
 
 SELECT = "select.my_h2s_print_file"
 BUTTON = "button.my_h2s_start_cloud_print"
@@ -92,7 +92,7 @@ async def test_button_sends_exact_bytes_and_options(hass, addon, media, bambu_de
     (call,) = posts(addon)
     assert call[2] == {
         "serial": SERIAL, "filename": "cube.gcode.3mf",
-        "file_b64": base64.b64encode(b"cube-bytes").decode(),
+        "file_b64": base64.b64encode(GOOD).decode(),
         "timelapse": True, "bed_leveling": False, "use_ams": True,
     }
     s = hass.states.get(SENSOR)
@@ -106,7 +106,7 @@ async def test_button_binary_roundtrip_defaults(hass, addon, media, bambu_device
     await choose(hass, "benchy.gcode.3mf")
     await press(hass)
     p = posts(addon)[0][2]
-    assert base64.b64decode(p["file_b64"]) == b"PK\x00\x01binary\xff\xfe"
+    assert base64.b64decode(p["file_b64"]) == GOOD
     assert p["timelapse"] is False and p["bed_leveling"] is True
 
 
@@ -155,7 +155,7 @@ async def test_action_by_device_id_and_options(hass, addon, media, bambu_device)
     assert res == {"result": "sent", "return_code": -1}
     p = posts(addon)[0][2]
     assert (p["serial"], p["timelapse"], p["bed_leveling"], p["use_ams"]) == (SERIAL, True, False, False)
-    assert base64.b64decode(p["file_b64"]) == b"PK\x00\x01binary\xff\xfe"
+    assert base64.b64decode(p["file_b64"]) == GOOD
 
 
 @pytest.mark.parametrize("bad", [
@@ -314,6 +314,58 @@ async def test_chamber_light_sends_and_mirrors_bambulab_state(hass, addon, media
     hass.states.async_set(bl.entity_id, "on")  # the printer reports the light on
     await hass.async_block_till_done()
     assert hass.states.get(ours).state == "on"
+
+
+# ---- G-code guard: a file that would print air never reaches the add-on
+BAD_FILES = {
+    "no_ams_load": make_3mf(ams=False),
+    "no_stage_markers": make_3mf(claims=False),
+    "generic_start": make_3mf(ams=False, claims=False),
+    "wrong_model": make_3mf(model="Bambu Lab P1S"),
+}
+
+
+@pytest.mark.parametrize("name", BAD_FILES)
+async def test_print_refuses_bad_file_and_force_does_not_bypass(hass, addon, media, bambu_device, name):
+    (media / "bambu_sender" / "bad.gcode.3mf").write_bytes(BAD_FILES[name])
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    await choose(hass, "bad.gcode.3mf")
+    with pytest.raises(HomeAssistantError, match="Refusing to send bad.gcode.3mf"):
+        await press(hass)
+    for force in (False, True):
+        with pytest.raises(HomeAssistantError, match="Refusing"):
+            await hass.services.async_call("bambu_sender", "print_file",
+                {"serial": SERIAL, "file": "bad.gcode.3mf", "force": force}, blocking=True, return_response=True)
+    assert posts(addon) == []
+    assert hass.states.get(SENSOR).state == "error"
+
+
+async def test_print_lists_all_problems(hass, addon, media, bambu_device):
+    (media / "bambu_sender" / "bad.gcode.3mf").write_bytes(BAD_FILES["generic_start"])
+    await setup_entry(hass)
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("bambu_sender", "print_file",
+            {"serial": SERIAL, "file": "bad.gcode.3mf"}, blocking=True)
+    assert "AMS filament load" in str(err.value) and "gcode_claim_action" in str(err.value)
+
+
+async def test_print_without_ams_skips_only_the_load_check(hass, addon, media, bambu_device):
+    (media / "bambu_sender" / "ext.gcode.3mf").write_bytes(BAD_FILES["no_ams_load"])
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    res = await hass.services.async_call("bambu_sender", "print_file",
+        {"serial": SERIAL, "file": "ext.gcode.3mf", "use_ams": False}, blocking=True, return_response=True)
+    assert res["result"] == "sent" and len(posts(addon)) == 1
+
+
+async def test_print_refuses_when_printer_model_unknown(hass, addon, media, bambu_device):
+    await setup_entry(hass)
+    mock_addon(addon, [{k: v for k, v in PRINTER.items() if not k.startswith("dev_")}])
+    with pytest.raises(HomeAssistantError, match="model is unknown"):
+        await hass.services.async_call("bambu_sender", "print_file",
+            {"serial": SERIAL, "file": "benchy.gcode.3mf"}, blocking=True)
+    assert posts(addon) == []
 
 
 # ---- PUT /api/bambu_sender/upload/<name>: secret-guarded drop into the print file list

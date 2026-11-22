@@ -16,6 +16,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from . import api
+from .gcode_guard import check_gcode_3mf
 from .const import (
     BUSY_STATUSES,
     CONF_URL,
@@ -112,6 +113,17 @@ class SenderCoordinator(DataUpdateCoordinator[SenderData]):
             )
 
         filename = path.rsplit("/", 1)[-1]
+        # Not bypassed by force: that only overrides the busy check. A file that cannot
+        # load filament prints air.
+        printer = (self.data.printers if self.data else {}).get(serial) or {}
+        model = printer.get("dev_product_name") or printer.get("dev_model_name")
+        problems = await self.hass.async_add_executor_job(
+            check_gcode_3mf, path, model, use_ams
+        )
+        if problems:
+            text = f"Refusing to send {filename}: " + " ".join(problems)
+            self._record(serial, filename, text)
+            raise HomeAssistantError(text)
         b64 = await self.hass.async_add_executor_job(api.read_b64, path)
         payload = {
             "serial": serial,

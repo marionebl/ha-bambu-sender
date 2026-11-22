@@ -40,6 +40,17 @@ curl -fsS -X PUT --data-binary @plate.gcode.3mf \
 
 The integration needs the Bambu Sender add-on (`http://local-bambu-sender:8098`).
 
+## Print guard
+
+Before anything is sent, `bambu_sender.print_file` and the Start button check the first plate's G-code (`gcode_guard.py`) and refuse the file, listing every problem, if:
+
+- `; printer_model` is not the target printer's model,
+- there is no AMS filament load (`M620 S<n>A`, `T<n>`, `M621 S<n>A`, n < 255) before the first extruding move (skipped with `use_ams: false`),
+- the start G-code has no `M1002 gcode_claim_action` stage markers (every Bambu start G-code has them),
+- the nozzle is not heated before the first extruding move.
+
+`force` only overrides the "printer is busy" check, not this guard. Agents can run it before upload: `python3 tools/review/bin/check_gcode.py FILE --printer H2S [--no-ams]`.
+
 ## Tests
 
 ```

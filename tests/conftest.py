@@ -1,3 +1,6 @@
+import io
+import zipfile
+
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -20,6 +23,25 @@ PRINTER = {
 HEALTH = {"server": "ok", "accounts": []}
 
 
+def make_3mf(model="Bambu Lab H2S", ams=True, claims=True):
+    """Tiny .gcode.3mf; ams=False/claims=False make it look like a generic (non-Bambu) start G-code."""
+    start = ["M1002 gcode_claim_action : 4"] if claims else []
+    start += ["M104 S140"]
+    if ams:
+        start += ["M620 S0A", "T0", "M621 S0A"]
+    start += ["M109 S245", "M83", "G1 X10 Y10 E5"]
+    gcode = "\n".join(
+        ["; HEADER_BLOCK_START", "; HEADER_BLOCK_END", f"; printer_model = {model}", "; EXECUTABLE_BLOCK_START", *start]
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Metadata/plate_1.gcode", gcode)
+    return buf.getvalue()
+
+
+GOOD = make_3mf()
+
+
 @pytest.fixture(autouse=True)
 def _custom(enable_custom_integrations):
     yield
@@ -31,8 +53,8 @@ def media(hass, tmp_path):
     hass.config.media_dirs = {"local": str(tmp_path)}
     base = tmp_path / "bambu_sender"
     (base / "sub").mkdir(parents=True)
-    (base / "benchy.gcode.3mf").write_bytes(b"PK\x00\x01binary\xff\xfe")
-    (base / "sub" / "cube.gcode.3mf").write_bytes(b"cube-bytes")
+    (base / "benchy.gcode.3mf").write_bytes(GOOD)
+    (base / "sub" / "cube.gcode.3mf").write_bytes(GOOD)
     (base / "ignore.txt").write_text("x")
     (tmp_path / "secret.gcode.3mf").write_bytes(b"outside")
     return tmp_path
