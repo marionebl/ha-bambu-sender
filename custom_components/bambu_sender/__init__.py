@@ -18,6 +18,7 @@ from . import api
 from .const import BAMBU_LAB_DOMAIN, DOMAIN
 from .coordinator import SenderCoordinator
 from .upload import UploadView
+from .watchdog import PrintWatchdog
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["select", "switch", "button", "sensor", "camera", "light"]
@@ -87,6 +88,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = SenderCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    # coordinator.async_print calls coordinator.watchdog.started() for use_ams prints.
+    coordinator.watchdog = PrintWatchdog(hass, coordinator)
+    entry.async_on_unload(coordinator.watchdog.async_stop)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

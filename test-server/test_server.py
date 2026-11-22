@@ -235,6 +235,16 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(self.s.json("POST", "/api/light/NOPE", {"on": True})[0], 404)
         self.assertEqual(len(self.s.daemon(self.s.base, "/commands")), 3)  # rejected requests sent nothing
 
+    def test_05d_pause_command(self):
+        before = len(self.s.daemon(self.s.base, "/commands"))
+        st, _ = self.s.json("POST", "/api/pause/SERIAL001", {})
+        self.assertEqual(st, 200)
+        cmds = self.s.daemon(self.s.base, "/commands")
+        # The payload BambuStudio's command_task_pause and ha-bambulab's PAUSE send.
+        self.assertEqual(cmds[before:], [{"print": {"command": "pause", "sequence_id": "0", "param": ""}}])
+        self.assertEqual(self.s.json("POST", "/api/pause/NOPE", {})[0], 404)
+        self.assertEqual(len(self.s.daemon(self.s.base, "/commands")), before + 1)
+
     def test_06_print_delivers_exact_bytes(self):
         blob = bytes(range(256)) * 40 + b"\r\n--boundary\r\n\x00\xff" + os.urandom(2000)
         st, d = self.s.json("POST", "/api/print", {"serial": "SERIAL001", "filename": "cube.gcode.3mf",

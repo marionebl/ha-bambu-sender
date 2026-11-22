@@ -437,3 +437,17 @@ async def test_options_flow_sets_secret(hass, addon, media, bambu_device):
     done = await hass.config_entries.options.async_configure(flow["flow_id"], {"upload_secret": SECRET})
     assert done["type"] == "create_entry"
     assert entry.options == {"upload_secret": SECRET}
+
+
+async def test_print_with_ams_starts_the_watchdog(hass, addon, media, bambu_device):
+    from unittest.mock import patch
+    (media / "bambu_sender" / "good.gcode.3mf").write_bytes(GOOD)
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    from custom_components.bambu_sender.watchdog import PrintWatchdog
+    with patch.object(PrintWatchdog, "started") as started:
+        await hass.services.async_call("bambu_sender", "print_file",
+            {"serial": SERIAL, "file": "good.gcode.3mf"}, blocking=True, return_response=True)
+        await hass.services.async_call("bambu_sender", "print_file",
+            {"serial": SERIAL, "file": "good.gcode.3mf", "use_ams": False}, blocking=True, return_response=True)
+    started.assert_called_once_with(SERIAL, "good.gcode.3mf")

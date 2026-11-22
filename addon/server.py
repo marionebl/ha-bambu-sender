@@ -780,6 +780,15 @@ def post_rfid(h, m, body):
     send_command(h, acc, serial, [payload])
 
 
+def post_pause(h, m, body):
+    serial, acc = m.group(1), owner(m.group(1))
+    if not acc:
+        return h.send(404, {"error": "unknown printer"})
+    # Same payload as BambuStudio's command_task_pause and ha-bambulab's PAUSE (which the firmware
+    # ignores unsigned, hence this route).
+    send_command(h, acc, serial, [{"print": {"command": "pause", "sequence_id": "0", "param": ""}}])
+
+
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Bambu Sender</title>
@@ -861,6 +870,7 @@ ROUTES = [
     ("POST", r"/api/print", post_print, MAX_PRINT_BODY),
     ("POST", r"/api/light/" + SER, post_light, MAX_SMALL_BODY),
     ("POST", r"/api/rfid/" + SER, post_rfid, MAX_SMALL_BODY),
+    ("POST", r"/api/pause/" + SER, post_pause, MAX_SMALL_BODY),
 ]
 
 

@@ -155,6 +155,8 @@ class SenderCoordinator(DataUpdateCoordinator[SenderData]):
             and body.get("result") in OK_RESULTS
         ):
             self._record(serial, filename, None)
+            if use_ams and getattr(self, "watchdog", None):
+                self.watchdog.started(serial, filename)
             return body
         text = _error_text(status_code, body)
         self._record(serial, filename, text)
