@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 addon/boocloud-bridge-camera
+tools/slicer/dl/
+tools/slicer/profiles/
+tools/slicer/datadir/
+__pycache__/

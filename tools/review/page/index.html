@@ -1,0 +1,394 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Plate Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: 3D stage left, review panel right; stacked on phones. */
+:root {
+  --bg: #eef0f1;
+  --surface: #ffffff;
+  --scene: #e4e8ea;
+  --fg: #1c2427;
+  --muted: #5c686d;
+  --line: #cfd6d9;
+  --accent: #0d7a8a;
+  --grid: #b9c3c7;
+  --grid-edge: #5c6b71;
+  --font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1416; --surface: #182024; --scene: #0b0f11; --fg: #e4eaec; --muted: #93a2a8;
+    --line: #2b383d; --accent: #4cc3d3; --grid: #26333a; --grid-edge: #6d8791; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1416; --surface: #182024; --scene: #0b0f11; --fg: #e4eaec; --muted: #93a2a8;
+  --line: #2b383d; --accent: #4cc3d3; --grid: #26333a; --grid-edge: #6d8791; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 var(--font);
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+[hidden] { display: none !important; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+header .sub { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+.main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.stage {
+  position: relative; background: var(--scene); border: 1px solid var(--line); border-radius: 8px;
+  height: 68vh; min-height: 340px; overflow: hidden;
+}
+.stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px; color: var(--muted); }
+.hint { position: absolute; left: 10px; bottom: 8px; font-size: 11px; color: var(--muted); pointer-events: none; }
+.panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; min-width: 0; }
+h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.layers { display: grid; gap: 8px; }
+.row { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; }
+.row label { color: var(--muted); font-size: 12px; }
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; min-height: 28px; }
+.readout { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.readout b { color: var(--accent); font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { font: inherit; padding: 6px 12px; background: transparent; color: var(--fg); border: 0; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--bg); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.list label { display: flex; align-items: center; gap: 8px; padding: 4px 2px; cursor: pointer; min-width: 0; }
+.list .name { overflow-wrap: anywhere; min-width: 0; flex: 1; }
+.list .meta { color: var(--muted); font-size: 11px; font-family: var(--mono); }
+.sw { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid var(--line); }
+.list li.off .name, .list li.off .meta { opacity: 0.45; text-decoration: line-through; }
+dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; margin: 0; }
+dt { color: var(--muted); }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.mini { display: flex; gap: 8px; margin-top: 8px; }
+.mini button { font: inherit; font-size: 12px; padding: 3px 8px; background: transparent; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+@media (max-width: 820px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 56vh; }
+}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/controls/OrbitControls.js": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/controls/OrbitControls.js"
+} }
+</script>
+
+<header>
+  <h1 id="plateName">Plate Review</h1>
+  <span class="sub" id="source"></span>
+</header>
+<div class="app">
+  <div class="main">
+    <div class="stage" id="stage">
+      <div class="msg" id="msg">Loading toolpaths...</div>
+      <div class="hint">Drag to orbit, right-drag or two fingers to pan, wheel or pinch to zoom.</div>
+    </div>
+    <div class="card layers">
+      <h2>Layer range</h2>
+      <div class="row"><label for="top">Top</label><input type="range" id="top" min="1" max="1" value="1"></div>
+      <div class="row"><label for="bottom">Bottom</label><input type="range" id="bottom" min="1" max="1" value="1"></div>
+      <div class="readout" id="layerInfo"></div>
+    </div>
+  </div>
+  <aside class="panel">
+    <div class="card" id="variantCard" hidden>
+      <h2>Variant</h2>
+      <div class="seg" role="group" aria-label="Variant" id="variants"></div>
+      <dl id="compare" style="margin-top:10px"></dl>
+    </div>
+    <div class="card">
+      <h2>Colour by</h2>
+      <div class="seg" role="group" aria-label="Colour mode">
+        <button type="button" id="modeFeature" aria-pressed="true">Feature</button>
+        <button type="button" id="modeObject" aria-pressed="false">Object</button>
+      </div>
+      <ul class="list" id="legend" style="margin-top:10px"></ul>
+    </div>
+    <div class="card">
+      <h2 id="objHead">Objects</h2>
+      <ul class="list" id="objects"></ul>
+      <div class="mini"><button type="button" id="objAll">Show all</button><button type="button" id="objNone">Hide all</button></div>
+    </div>
+    <div class="card">
+      <h2>Slice summary</h2>
+      <dl id="summary"></dl>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const $ = (id) => document.getElementById(id);
+const FEAT_COL = {
+  'Outer wall': '#e4572e', 'Inner wall': '#f2a541', 'Overhang wall': '#d1337a',
+  'Sparse infill': '#2f9e6b', 'Internal solid infill': '#7a5cc9', 'Gap infill': '#9ac33a',
+  'Top surface': '#2e86de', 'Bottom surface': '#16a5b8', 'Bridge': '#e0368f',
+  'Internal Bridge': '#b05fd0', 'Brim': '#8d99a0', 'Support': '#c9a227', 'Support interface': '#e6c04a',
+  'Skirt': '#8d99a0', 'Prime tower': '#a0724a'
+};
+const EXTRA = ['#5b8def', '#e07b39', '#3fb68b', '#c05a9a', '#7f8c3a', '#4aa3c8', '#b5654a', '#8a6fd0'];
+const OBJ_COL = ['#8d99a0', '#e4572e', '#2e86de', '#2f9e6b', '#f2a541', '#7a5cc9', '#16a5b8', '#d1337a',
+  '#9ac33a', '#e0368f', '#b05fd0', '#c9a227', '#5b8def', '#e07b39', '#3fb68b', '#c05a9a'];
+const MAXF = 16, MAXO = 16;
+
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function toVec(h) { const c = new THREE.Color(h); return new THREE.Vector3(c.r, c.g, c.b); }
+
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, 1, 1, 3000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.499;
+
+// Shared uniforms for the toolpath shader.
+const U = {
+  uMode: { value: 0 },
+  uFeat: { value: Array.from({ length: MAXF }, () => new THREE.Vector3(1, 1, 1)) },
+  uObj: { value: Array.from({ length: MAXO }, () => new THREE.Vector3(1, 1, 1)) },
+  uFeatVis: { value: new Array(MAXF).fill(1) },
+  uObjVis: { value: new Array(MAXO).fill(1) },
+  uBg: { value: new THREE.Vector3(0, 0, 0) }
+};
+function mkMat(top) {
+  return new THREE.ShaderMaterial({
+    uniforms: { ...U, uTop: { value: top ? 1 : 0 } },
+    vertexShader: `
+      attribute vec2 meta;
+      uniform float uMode, uTop;
+      uniform vec3 uFeat[${MAXF}], uObj[${MAXO}], uBg;
+      uniform float uFeatVis[${MAXF}], uObjVis[${MAXO}];
+      varying vec3 vCol; varying float vVis;
+      void main() {
+        int f = int(meta.x + 0.5), o = int(meta.y + 0.5);
+        vec3 c = uMode < 0.5 ? uFeat[f] : uObj[o];
+        vVis = uFeatVis[f] * uObjVis[o];
+        vCol = uTop > 0.5 ? c : mix(c, uBg, 0.3);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec3 vCol; varying float vVis;
+      void main() { if (vVis < 0.5) discard; gl_FragColor = vec4(vCol, 1.0); }`
+  });
+}
+const matNormal = mkMat(false), matTop = mkMat(true);
+
+let D = null, layerLines = [], modeObject = false, top = 1, bottom = 1;
+const objState = [], featState = [];
+
+function applyTheme() {
+  const bg = cssVar('--scene');
+  scene.background = new THREE.Color(bg);
+  const c = new THREE.Color(bg);
+  U.uBg.value.set(c.r, c.g, c.b);
+  if (gridGroup) buildGrid();
+}
+let gridGroup = null;
+function buildGrid() {
+  if (gridGroup) { scene.remove(gridGroup); gridGroup.traverse(o => { o.geometry?.dispose(); o.material?.dispose(); }); }
+  gridGroup = new THREE.Group();
+  const [x0, y0, x1, y1] = D ? D.meta.bed : [0, 0, 340, 320];
+  const g = [];
+  for (let x = Math.ceil(x0 / 10) * 10; x <= x1; x += 10) g.push(x, 0, -y0, x, 0, -y1);
+  for (let y = Math.ceil(y0 / 10) * 10; y <= y1; y += 10) g.push(x0, 0, -y, x1, 0, -y);
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.Float32BufferAttribute(g, 3));
+  gridGroup.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: cssVar('--grid') })));
+  const eg = new THREE.BufferGeometry();
+  eg.setAttribute('position', new THREE.Float32BufferAttribute(
+    [x0, 0.02, -y0, x1, 0.02, -y0, x1, 0.02, -y1, x0, 0.02, -y1], 3));
+  gridGroup.add(new THREE.LineLoop(eg, new THREE.LineBasicMaterial({ color: cssVar('--grid-edge') })));
+  scene.add(gridGroup);
+}
+
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+function frame() { controls.update(); renderer.render(scene, camera); requestAnimationFrame(frame); }
+
+function featColor(name, i) { return FEAT_COL[name] || EXTRA[i % EXTRA.length]; }
+
+function build(buf) {
+  const n = D.segments, q = D.q, b = D.bin;
+  const coords = new Uint16Array(buf, b.coords, n * 4);
+  const objA = new Uint8Array(buf, b.obj, n);
+  const featA = new Uint8Array(buf, b.feat, n);
+  let s = 0;
+  D.layers.forEach((L, li) => {
+    const cnt = L.n, pos = new Float32Array(cnt * 6), meta = new Uint8Array(cnt * 4);
+    const z = L.z;
+    for (let k = 0; k < cnt; k++) {
+      const i = s + k, c = i * 4, p = k * 6;
+      pos[p] = coords[c] / q; pos[p + 1] = z; pos[p + 2] = -coords[c + 1] / q;
+      pos[p + 3] = coords[c + 2] / q; pos[p + 4] = z; pos[p + 5] = -coords[c + 3] / q;
+      const m = k * 4;
+      meta[m] = meta[m + 2] = featA[i]; meta[m + 1] = meta[m + 3] = objA[i];
+    }
+    s += cnt;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('meta', new THREE.BufferAttribute(meta, 2));
+    g.boundingSphere = new THREE.Sphere(new THREE.Vector3(170, z, -160), 400);
+    const line = new THREE.LineSegments(g, matNormal);
+    line.frustumCulled = false;
+    layerLines.push(line); scene.add(line);
+  });
+}
+
+function setLayers() {
+  layerLines.forEach((l, i) => {
+    const n = i + 1;
+    l.visible = n >= bottom && n <= top;
+    l.material = n === top ? matTop : matNormal;
+  });
+  const L = D.layers[top - 1];
+  $('layerInfo').innerHTML = `Top <b>layer ${top}</b> of ${D.layers.length}, Z <b>${L.z.toFixed(2)} mm</b><br>` +
+    `Showing layers ${bottom} to ${top} (${top - bottom + 1})`;
+}
+
+function paintLists() {
+  U.uMode.value = modeObject ? 1 : 0;
+  $('modeFeature').setAttribute('aria-pressed', String(!modeObject));
+  $('modeObject').setAttribute('aria-pressed', String(modeObject));
+  const lg = $('legend'); lg.innerHTML = '';
+  const items = modeObject
+    ? D.objects.map((o, i) => ({ name: o.name, col: OBJ_COL[i % OBJ_COL.length] }))
+    : D.features.map((f, i) => ({ name: f, col: featColor(f, i), i }));
+  items.forEach((it, i) => {
+    const li = document.createElement('li');
+    if (!modeObject) {
+      li.className = featState[i] ? '' : 'off';
+      li.innerHTML = `<label><input type="checkbox" ${featState[i] ? 'checked' : ''}><span class="sw" style="background:${it.col}"></span><span class="name"></span></label>`;
+      li.querySelector('.name').textContent = it.name;
+      li.querySelector('input').addEventListener('change', (e) => {
+        featState[i] = e.target.checked; U.uFeatVis.value[i] = e.target.checked ? 1 : 0; li.className = e.target.checked ? '' : 'off';
+      });
+    } else {
+      li.innerHTML = `<span class="sw" style="background:${it.col}"></span><span class="name"></span>`;
+      li.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 2px';
+      li.querySelector('.name').textContent = it.name;
+    }
+    lg.appendChild(li);
+  });
+  const ol = $('objects'); ol.innerHTML = '';
+  D.objects.forEach((o, i) => {
+    const li = document.createElement('li');
+    li.className = objState[i] ? '' : 'off';
+    const z = o.bbox ? `${(o.bbox[5]).toFixed(1)} mm` : '';
+    li.innerHTML = `<label><input type="checkbox" ${objState[i] ? 'checked' : ''}><span class="sw" style="background:${OBJ_COL[i % OBJ_COL.length]}"></span><span class="name"></span><span class="meta">${z}</span></label>`;
+    li.querySelector('.name').textContent = o.name;
+    li.querySelector('input').addEventListener('change', (e) => {
+      objState[i] = e.target.checked; U.uObjVis.value[i] = e.target.checked ? 1 : 0; li.className = e.target.checked ? '' : 'off';
+    });
+    ol.appendChild(li);
+  });
+}
+
+function setAllObjects(v) {
+  D.objects.forEach((_, i) => { objState[i] = v; U.uObjVis.value[i] = v ? 1 : 0; });
+  paintLists();
+}
+
+function summary() {
+  const m = D.meta, tot = D.layers.reduce((a, l) => a + l.n, 0);
+  const rows = [
+    ['Printer', m.printer], ['Filament', m.filament], ['Bed', m.bed_type],
+    ['Layer height', m.layer_height && m.layer_height + ' mm'], ['Walls', m.wall_loops],
+    ['Infill', m.infill], ['Print time', m.time], ['Filament used', m.grams && m.grams + ' g'],
+    ['Overlaps', m.overlaps], ['Layers', D.layers.length], ['Segments', tot.toLocaleString('en')], ['Slicer', m.slicer]
+  ];
+  $('summary').innerHTML = '';
+  rows.forEach(([k, v]) => {
+    if (v == null) return;
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = k; dd.textContent = v; $('summary').append(dt, dd);
+  });
+}
+
+async function init() {
+  applyTheme(); buildGrid(); resize();
+  camera.position.set(430, 250, 120);
+  controls.target.set(172, 8, -160);
+  controls.update();
+  requestAnimationFrame(frame);
+  // variants.json lists good/better/best slices; without it the page shows plate.json at the root.
+  let vr = null;
+  try { const r = await fetch('variants.json'); if (r.ok) vr = await r.json(); } catch (e) {}
+  if (vr && vr.variants && vr.variants.length) {
+    const seg = $('variants'), cmp = $('compare');
+    vr.variants.forEach((v) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = v.label;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', () => { [...seg.children].forEach(x => x.setAttribute('aria-pressed', String(x === b))); loadPlate(v.id + '/'); });
+      seg.appendChild(b);
+      const dt = document.createElement('dt'), dd = document.createElement('dd');
+      dt.textContent = v.label; dd.textContent = v.summary; cmp.append(dt, dd);
+    });
+    $('variantCard').hidden = false;
+    const i = Math.max(0, vr.variants.findIndex(v => v.id === vr.default));
+    seg.children[i].click();
+  } else loadPlate('');
+}
+
+async function loadPlate(dir) {
+  $('msg').hidden = false; $('msg').textContent = 'Loading toolpaths...';
+  layerLines.forEach(l => { scene.remove(l); l.geometry.dispose(); }); layerLines = [];
+  U.uFeatVis.value.fill(1); U.uObjVis.value.fill(1);
+  try {
+    // Artifacts do not serve .bin, so the binary ships as base64 text.
+    const [jr, br] = await Promise.all([fetch(dir + 'plate.json'), fetch(dir + 'plate.bin.txt')]);
+    if (!jr.ok || !br.ok) throw new Error('HTTP ' + jr.status + '/' + br.status);
+    D = await jr.json();
+    const s = atob((await br.text()).trim()), u8 = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) u8[i] = s.charCodeAt(i);
+    const buf = u8.buffer;
+    D.features.forEach((f, i) => { U.uFeat.value[i].copy(toVec(featColor(f, i))); featState[i] = true; });
+    D.objects.forEach((o, i) => { U.uObj.value[i].copy(toVec(OBJ_COL[i % OBJ_COL.length])); objState[i] = true; });
+    build(buf);
+    $('plateName').textContent = D.meta.plate + ' review';
+    document.title = 'Plate Review';
+    $('source').textContent = D.meta.source || '';
+    const real = D.objects.filter(o => o.label !== -1).length;
+    $('objHead').textContent = `Objects (${real})`;
+    $('objHead').dataset.count = real;
+    const n = D.layers.length; top = n; bottom = 1;
+    for (const id of ['top', 'bottom']) { $(id).max = n; $(id).min = 1; }
+    $('top').value = top; $('bottom').value = 1;
+    setLayers(); paintLists(); summary();
+    $('msg').hidden = true;
+  } catch (e) {
+    $('msg').textContent = 'Could not load plate.json and plate.bin: ' + e.message + '. Run gcode2plate.py and serve this folder over HTTP.';
+    console.error(e);
+  }
+}
+
+$('top').addEventListener('input', (e) => { top = +e.target.value; if (bottom > top) { bottom = top; $('bottom').value = bottom; } setLayers(); });
+$('bottom').addEventListener('input', (e) => { bottom = +e.target.value; if (top < bottom) { top = bottom; $('top').value = top; } setLayers(); });
+$('modeFeature').addEventListener('click', () => { modeObject = false; if (D) paintLists(); });
+$('modeObject').addEventListener('click', () => { modeObject = true; if (D) paintLists(); });
+$('objAll').addEventListener('click', () => D && setAllObjects(true));
+$('objNone').addEventListener('click', () => D && setAllObjects(false));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+init();
+</script>
+
+</body></html>
