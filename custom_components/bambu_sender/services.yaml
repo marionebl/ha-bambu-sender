@@ -1,0 +1,32 @@
+print_file:
+  fields:
+    device_id:
+      selector:
+        device:
+          filter:
+            - manufacturer: Bambu Lab
+    serial:
+      example: "0000TEST0000001"
+      selector:
+        text:
+    file:
+      required: true
+      example: "benchy.gcode.3mf"
+      selector:
+        text:
+    timelapse:
+      default: false
+      selector:
+        boolean:
+    bed_leveling:
+      default: true
+      selector:
+        boolean:
+    use_ams:
+      default: true
+      selector:
+        boolean:
+    force:
+      default: false
+      selector:
+        boolean:

@@ -1,0 +1,18 @@
+{
+  "domain": "bambu_sender",
+  "name": "Bambu Sender",
+  "version": "0.4.0",
+  "documentation": "https://github.com/marionebl/ha-bambu-sender",
+  "config_flow": true,
+  "single_config_entry": true,
+  "iot_class": "local_polling",
+  "after_dependencies": [
+    "bambu_lab"
+  ],
+  "dependencies": [],
+  "requirements": [],
+  "codeowners": [
+    "@marionebl"
+  ],
+  "issue_tracker": "https://github.com/marionebl/ha-bambu-sender/issues"
+}

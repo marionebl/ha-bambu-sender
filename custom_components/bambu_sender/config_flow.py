@@ -1,0 +1,47 @@
+"""Config flow for Bambu Sender."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import aiohttp
+import voluptuous as vol
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .api import async_get_json
+from .const import CONF_URL, DEFAULT_URL, DOMAIN
+
+
+class BambuSenderConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Ask for the add-on URL and check it answers /api/health."""
+
+    VERSION = 1
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        await self.async_set_unique_id(DOMAIN)
+        self._abort_if_unique_id_configured()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            url = user_input[CONF_URL].strip().rstrip("/")
+            try:
+                health = await async_get_json(
+                    async_get_clientsession(self.hass), url, "/api/health"
+                )
+                if not isinstance(health, dict) or "server" not in health:
+                    raise ValueError("not a Bambu Sender health document")
+            except (aiohttp.ClientError, TimeoutError, ValueError):
+                errors["base"] = "cannot_connect"
+            else:
+                return self.async_create_entry(
+                    title="Bambu Sender", data={CONF_URL: url}
+                )
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_URL, default=DEFAULT_URL): str}
+            ),
+            errors=errors,
+        )

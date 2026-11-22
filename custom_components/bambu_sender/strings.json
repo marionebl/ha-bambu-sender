@@ -1,0 +1,99 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bambu Sender add-on",
+        "description": "Address of the Bambu Sender add-on API.",
+        "data": {
+          "url": "Add-on URL"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the add-on at this URL."
+    },
+    "abort": {
+      "already_configured": "Bambu Sender is already set up.",
+      "single_instance_allowed": "Bambu Sender is already set up."
+    }
+  },
+  "entity": {
+    "select": {
+      "print_file": {
+        "name": "Print file"
+      }
+    },
+    "switch": {
+      "timelapse": {
+        "name": "Print timelapse"
+      },
+      "bed_leveling": {
+        "name": "Print bed leveling"
+      }
+    },
+    "button": {
+      "start_print": {
+        "name": "Start cloud print"
+      },
+      "reread_slot": {
+        "name": "Re-read slot {slot}"
+      }
+    },
+    "sensor": {
+      "cloud_sender": {
+        "name": "Cloud sender",
+        "state": {
+          "idle": "Idle",
+          "sent": "Sent",
+          "error": "Error"
+        }
+      }
+    },
+    "camera": {
+      "cloud_camera": {
+        "name": "Cloud camera"
+      }
+    },
+    "light": {
+      "chamber_light": {
+        "name": "Chamber light (cloud)"
+      }
+    }
+  },
+  "services": {
+    "print_file": {
+      "name": "Print file",
+      "description": "Sends a .gcode.3mf file to a printer as a cloud print through the add-on.",
+      "fields": {
+        "device_id": {
+          "name": "Printer",
+          "description": "Bambu Lab printer device."
+        },
+        "serial": {
+          "name": "Serial",
+          "description": "Printer serial number, used when no device is given."
+        },
+        "file": {
+          "name": "File",
+          "description": "Path relative to /media/bambu_sender, or an absolute path under /media or /share."
+        },
+        "timelapse": {
+          "name": "Timelapse",
+          "description": "Record a timelapse."
+        },
+        "bed_leveling": {
+          "name": "Bed leveling",
+          "description": "Level the bed before printing."
+        },
+        "use_ams": {
+          "name": "Use AMS",
+          "description": "Use the AMS filament mapping."
+        },
+        "force": {
+          "name": "Force",
+          "description": "Send even if the printer is running or paused."
+        }
+      }
+    }
+  }
+}
