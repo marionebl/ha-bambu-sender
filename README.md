@@ -11,6 +11,22 @@ Each printer gets these entities:
 - Re-read slot 1–4: the AMS reads the spool's RFID tag again, and you do not have to remove the spool
 - Cloud sender status sensor
 
+## Uploading print files
+
+Agents and scripts can put a sliced `.gcode.3mf` into the "Print file" list without an HA account:
+
+```
+curl -fsS -X PUT --data-binary @plate.gcode.3mf \
+  -H "X-Bambu-Sender-Secret: $BAMBU_SENDER_UPLOAD_SECRET" \
+  "$BAMBU_SENDER_UPLOAD_URL/plate.gcode.3mf"
+```
+
+- `BAMBU_SENDER_UPLOAD_URL` is `https://<your HA address>/api/bambu_sender/upload`.
+- Set the secret in Settings → Devices & services → Bambu Sender → Configure (at least 24 characters). An empty secret turns uploads off.
+- A wrong secret counts as a failed login, so HA's IP ban applies if `ip_ban_enabled` is on.
+- The file must be a sliced 3MF (it has `Metadata/plate_N.gcode`). The limit is 64 MB. An existing name needs `?overwrite=1`.
+- The answer has the stored name, the size and the SHA-256.
+
 The integration needs the Bambu Sender add-on (`http://local-bambu-sender:8098`).
 
 ## Tests

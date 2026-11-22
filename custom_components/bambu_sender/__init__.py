@@ -17,6 +17,7 @@ from homeassistant.helpers.typing import ConfigType
 from . import api
 from .const import BAMBU_LAB_DOMAIN, DOMAIN
 from .coordinator import SenderCoordinator
+from .upload import UploadView
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["select", "switch", "button", "sensor", "camera", "light"]
@@ -38,6 +39,8 @@ PRINT_FILE_SCHEMA = vol.All(
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    hass.http.register_view(UploadView())
+
     async def _print_file(call: ServiceCall) -> dict[str, Any]:
         entries = hass.config_entries.async_loaded_entries(DOMAIN)
         if not entries:

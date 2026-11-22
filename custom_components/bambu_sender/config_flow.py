@@ -6,17 +6,24 @@ from typing import Any
 
 import aiohttp
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.core import callback
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import async_get_json
-from .const import CONF_URL, DEFAULT_URL, DOMAIN
+from .const import CONF_UPLOAD_SECRET, CONF_URL, DEFAULT_URL, DOMAIN, MIN_SECRET_LENGTH
 
 
 class BambuSenderConfigFlow(ConfigFlow, domain=DOMAIN):
     """Ask for the add-on URL and check it answers /api/health."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return BambuSenderOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -42,6 +49,30 @@ class BambuSenderConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema(
                 {vol.Required(CONF_URL, default=DEFAULT_URL): str}
+            ),
+            errors=errors,
+        )
+
+
+class BambuSenderOptionsFlow(OptionsFlow):
+    """Upload secret for PUT /api/bambu_sender/upload/<name>; empty turns uploads off."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            secret = (user_input.get(CONF_UPLOAD_SECRET) or "").strip()
+            if secret and len(secret) < MIN_SECRET_LENGTH:
+                errors[CONF_UPLOAD_SECRET] = "secret_too_short"
+            else:
+                return self.async_create_entry(data={CONF_UPLOAD_SECRET: secret})
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_UPLOAD_SECRET): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    )
+                }
             ),
             errors=errors,
         )

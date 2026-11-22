@@ -95,5 +95,19 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Print file uploads",
+        "description": "Agents upload sliced files with PUT /api/bambu_sender/upload/<name>.gcode.3mf and the header X-Bambu-Sender-Secret. Leave empty to turn uploads off.",
+        "data": {
+          "upload_secret": "Upload secret (at least 24 characters)"
+        }
+      }
+    },
+    "error": {
+      "secret_too_short": "Use at least 24 characters."
+    }
   }
 }

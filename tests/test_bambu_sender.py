@@ -306,3 +306,74 @@ async def test_chamber_light_sends_and_mirrors_bambulab_state(hass, addon, media
     hass.states.async_set(bl.entity_id, "on")  # the printer reports the light on
     await hass.async_block_till_done()
     assert hass.states.get(ours).state == "on"
+
+
+# ---- PUT /api/bambu_sender/upload/<name>: secret-guarded drop into the print file list
+import io
+import zipfile
+
+SECRET = "s" * 32
+UPLOAD = "/api/bambu_sender/upload/"
+
+
+def sliced_3mf(gcode=b"G28\n"):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("Metadata/plate_1.gcode", gcode)
+        z.writestr("3D/3dmodel.model", "<model/>")
+    return buf.getvalue()
+
+
+async def upload_setup(hass, hass_client_no_auth, secret=SECRET):
+    entry = await setup_entry(hass)
+    hass.config_entries.async_update_entry(entry, options={"upload_secret": secret} if secret else {})
+    return await hass_client_no_auth()
+
+
+async def test_upload_stores_file_and_select_lists_it(hass, addon, media, bambu_device, hass_client_no_auth, tmp_path):
+    import hashlib
+    client = await upload_setup(hass, hass_client_no_auth)
+    body = sliced_3mf()
+    resp = await client.put(UPLOAD + "plate review.gcode.3mf", data=body, headers={"X-Bambu-Sender-Secret": SECRET})
+    assert resp.status == 200, await resp.text()
+    assert (await resp.json())["sha256"] == hashlib.sha256(body).hexdigest()
+    assert (tmp_path / "bambu_sender" / "plate review.gcode.3mf").read_bytes() == body
+    await hass.async_block_till_done()
+    assert "plate review.gcode.3mf" in hass.states.get(SELECT).attributes["options"]
+    # same name again needs overwrite=1
+    resp = await client.put(UPLOAD + "plate review.gcode.3mf", data=body, headers={"X-Bambu-Sender-Secret": SECRET})
+    assert resp.status == 409
+    resp = await client.put(UPLOAD + "plate review.gcode.3mf?overwrite=1", data=body, headers={"X-Bambu-Sender-Secret": SECRET})
+    assert resp.status == 200
+
+
+async def test_upload_rejects_bad_secret_name_and_content(hass, addon, media, bambu_device, hass_client_no_auth, tmp_path):
+    client = await upload_setup(hass, hass_client_no_auth)
+    ok = {"X-Bambu-Sender-Secret": SECRET}
+    assert (await client.put(UPLOAD + "a.gcode.3mf", data=sliced_3mf())).status == 401
+    assert (await client.put(UPLOAD + "a.gcode.3mf", data=sliced_3mf(), headers={"X-Bambu-Sender-Secret": "x" * 32})).status == 401
+    assert (await client.put(UPLOAD + "..%2Fescape.gcode.3mf", data=sliced_3mf(), headers=ok)).status in (400, 404)
+    assert (await client.put(UPLOAD + "a.stl", data=sliced_3mf(), headers=ok)).status == 400
+    assert (await client.put(UPLOAD + "a.gcode.3mf", data=b"not a zip", headers=ok)).status == 400
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("3D/3dmodel.model", "<model/>")  # unsliced project
+    assert (await client.put(UPLOAD + "a.gcode.3mf", data=buf.getvalue(), headers=ok)).status == 400
+    assert not (tmp_path / "bambu_sender" / "a.gcode.3mf").exists()
+    assert not [p for p in tmp_path.rglob("*.part")]  # temp files cleaned up
+
+
+async def test_upload_off_without_secret(hass, addon, media, bambu_device, hass_client_no_auth):
+    client = await upload_setup(hass, hass_client_no_auth, secret=None)
+    resp = await client.put(UPLOAD + "a.gcode.3mf", data=sliced_3mf(), headers={"X-Bambu-Sender-Secret": ""})
+    assert resp.status == 403
+
+
+async def test_options_flow_sets_secret(hass, addon, media, bambu_device):
+    entry = await setup_entry(hass)
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    short = await hass.config_entries.options.async_configure(flow["flow_id"], {"upload_secret": "short"})
+    assert short["errors"] == {"upload_secret": "secret_too_short"}
+    done = await hass.config_entries.options.async_configure(flow["flow_id"], {"upload_secret": SECRET})
+    assert done["type"] == "create_entry"
+    assert entry.options == {"upload_secret": SECRET}
