@@ -27,7 +27,12 @@ Use this skill for any request to slice, review, upload or print a plate for Mar
 | Upload | `PUT $BAMBU_SENDER_UPLOAD_URL/<name>.gcode.3mf` with header `X-Bambu-Sender-Secret: $BAMBU_SENDER_UPLOAD_SECRET` |
 | Print service | `bambu_sender.print_file` (fields: `serial` or `device_id`, `file`, `timelapse`, `bed_leveling`, `use_ams`, `force`) |
 
-The slicer in `tools/slicer` makes files for the H2S 0.4 nozzle only. A P1S plate needs a P1S machine profile in `slice.sh` first. Tell Mario this before you start a P1S plate.
+Slice with Bambu Studio in `tools/bambu-studio`. It supports the H2S and the P1S. Do not use the old OrcaSlicer tools in `tools/slicer`.
+
+On 2026-11-22 a print ran 1 h with an empty nozzle. The file had a generic start G-code without the AMS filament load. Two safeguards now exist, and you must not work around them:
+
+- `tools/review/bin/check_gcode.py <file> --printer <H2S|P1S>` checks the file. Home Assistant runs the same check before every print and refuses a bad file. `force` does not skip it.
+- A watchdog in Home Assistant pauses a Bambu Sender print that runs without an active AMS tray for 120 s.
 
 The Home Assistant tools are the HA-MCP tools (`ha_get_state`, `ha_call_service`, `ha_get_camera_image`, ...). If they are not in the session, say so and stop at the upload step.
 
@@ -54,20 +59,19 @@ If the loaded filament or the bed does not fit the plate, tell Mario what must c
 
 Start one fresh Agent (model `sonnet`, not a fork) for the three slices. Give it this brief, with the values filled in:
 
-> Goal: slice `<model file>` for Tilman's Bambu H2S in three variants, so Mario can choose quality against time.
-> Setup: `git clone https://github.com/marionebl/ha-bambu-sender && cd ha-bambu-sender/tools && slicer/setup.sh` (Ubuntu 24.04, about 3 minutes, needs apt and GitHub).
+> Goal: slice `<model file>` for `<printer>` in three variants, so Mario can choose quality against time.
+> Setup: `git clone https://github.com/marionebl/ha-bambu-sender && cd ha-bambu-sender/tools && bambu-studio/setup.sh` (Ubuntu 24.04, about 1.5 minutes, needs apt and GitHub).
 > For each variant, run:
-> `PROCESS="<process>" BED="<bed>" COLOURS="<#hex per filament>" slicer/bin/slice.sh <model> out/<id> "<filament profile>"`
-> - good: `0.24mm Standard @BBL H2S`
-> - better: `0.20mm Standard @BBL H2S`
-> - best: `0.16mm High Quality @BBL H2S`
-> Then for each variant: `python3 review/bin/gcode2plate.py out/<id>/*.gcode.3mf review-out/<id> --plate-name "<plate>"` and `python3 review/bin/check_plate.py review-out/<id> --gcode3mf out/<id>/*.gcode.3mf`.
-> Done when: each variant has a `.gcode.3mf` and `check_plate.py` prints `RESULT: ALL CHECKS PASSED`.
+> `PRINTER="<machine profile>" PROCESS="<process>" BED="<bed>" COLOURS="<#hex per filament>" bambu-studio/bin/slice.sh <model> out/<id> "<filament profile>"`
+> - H2S: PRINTER `Bambu Lab H2S 0.4 nozzle`; good `0.24mm Standard @BBL H2S`, better `0.20mm Standard @BBL H2S`, best `0.16mm High Quality @BBL H2S`; filament names end in `@BBL H2S`.
+> - P1S: PRINTER `Bambu Lab P1S 0.4 nozzle`; good `0.24mm Draft @BBL X1C`, better `0.20mm Standard @BBL X1C`, best `0.16mm High Quality @BBL X1C`; filament names end in `@BBL P1S 0.4 nozzle`.
+> Then for each variant: `python3 -I review/bin/check_gcode.py out/<id>/*.gcode.3mf --printer <H2S|P1S>`, `python3 review/bin/gcode2plate.py out/<id>/*.gcode.3mf review-out/<id> --plate-name "<plate>"` and `python3 review/bin/check_plate.py review-out/<id> --gcode3mf out/<id>/*.gcode.3mf`.
+> Done when: each variant has a `.gcode.3mf`, `check_gcode.py` prints `RESULT: GUARD PASSED` and `check_plate.py` prints `RESULT: ALL CHECKS PASSED`.
 > A failure looks like: a `FAIL` line, a non-zero exit, or overlaps above 0 in the gcode2plate output. Report it. Do not change the tools to make a check pass.
 > Do not upload or print anything. Do not change files outside the clone.
 > Report: per variant the print time, the filament grams, the layer height, the overlap counts, the check result (quote the output), and the absolute paths of the `.gcode.3mf` and `review-out/<id>` folders. Name each deviation from this brief.
 
-Check the report yourself. Run `check_plate.py` again on one variant, and read the times and grams from `review-out/<id>/plate.json`.
+Check the report yourself. Run `check_gcode.py` on every variant and `check_plate.py` again on one variant, and read the times and grams from `review-out/<id>/plate.json`.
 
 ## Step 4: Publish to Plate Review
 
@@ -99,7 +103,7 @@ Then stop and wait. Do not upload before the sign-off. If Mario asks for a chang
 
 ## Step 6: Upload
 
-After the sign-off, upload only the chosen variant. Use a name that has the plate, the date and the variant, for example `test_plate_2026-11-21_v3_better.gcode.3mf`.
+After the sign-off, run `check_gcode.py` on the chosen variant for the target printer once more. Upload only if it prints `RESULT: GUARD PASSED`. Upload only the chosen variant. Use a name that has the plate, the date and the variant, for example `test_plate_2026-11-21_v3_better.gcode.3mf`.
 
 ```
 curl -fsS -X PUT --data-binary @<file> \
@@ -117,7 +121,7 @@ curl -fsS -X PUT --data-binary @<file> \
 1. Take a new camera image and read the printer state. The printer must be idle and the bed must be clear. If not, tell Mario and wait.
 2. Check that the select (for example `select.tilman_h2s_print_file`) lists the uploaded name.
 3. Call `bambu_sender.print_file` with `serial` or `device_id`, `file` = the uploaded name, `use_ams: true`, `bed_leveling: true` and `timelapse: false`, unless Mario asked for other values. Do not set `force` unless Mario asks for it, because `force` ignores a busy printer.
-4. Prove the start: within 2 minutes the printer state must change to a printing or preparing state. Quote that state. If it does not change, read the add-on log (`ha_get_logs`) and report the error.
+4. Prove the start. A change to `running` is not enough: the failed print also reached `running`. Within 10 minutes, the stage sensor (for example `sensor.tilman_h2s_current_stage`) must show `changing_filament`, and the active tray sensor (for example `sensor.tilman_h2s_active_tray`) must show a filament name, not `none`. Quote both states. If they do not appear, or the watchdog posts a notification, tell Mario at once, and read the add-on log (`ha_get_logs`).
 
 ## Step 8: Update the tracker
 
