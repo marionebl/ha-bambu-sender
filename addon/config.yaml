@@ -1,5 +1,5 @@
 name: Bambu Sender
-version: "0.5.0"
+version: "0.5.1"
 slug: bambu_sender
 description: Read a Bambu Lab printer and its AMS filaments and start cloud prints, through Home Assistant ingress
 arch: [aarch64]
