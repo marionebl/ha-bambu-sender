@@ -6,3 +6,6 @@ tools/slicer/dl/
 tools/slicer/profiles/
 tools/slicer/datadir/
 __pycache__/
+tools/out*/
+tools/review-out*/
+tools/slicer/result.json
