@@ -58,6 +58,7 @@ Start one fresh Agent (model `sonnet`, not a fork) for the three slices. Give it
 > Setup: `git clone https://github.com/marionebl/ha-bambu-sender && cd ha-bambu-sender/tools && slicer/setup.sh` (Ubuntu 24.04, about 3 minutes, needs apt and GitHub).
 > For each variant, run:
 > `PROCESS="<process>" BED="<bed>" COLOURS="<#hex per filament>" slicer/bin/slice.sh <model> out/<id> "<filament profile>"`
+> If the model is a laid-out plate (objects already placed with gaps), add `ARRANGE=0`. Otherwise OrcaSlicer arranges the objects again, closer than the layout.
 > - good: `0.24mm Standard @BBL H2S`
 > - better: `0.20mm Standard @BBL H2S`
 > - best: `0.16mm High Quality @BBL H2S`

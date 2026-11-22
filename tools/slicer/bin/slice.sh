@@ -36,7 +36,7 @@ STEM=$(basename "$IN"); STEM=${STEM%.*}
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-$(mktemp -d)}
 rm -f "$OUT/$STEM.gcode.3mf"
 xvfb-run -a "$ROOT/dl/squashfs-root/AppRun" --datadir "$ROOT/datadir" --allow-newer-file \
-  --slice 1 --load-settings "$PF/machine.json;$PF/process.json" --load-filaments "$FL" \
+  ${ARRANGE:+--arrange "$ARRANGE"} --slice 1 --load-settings "$PF/machine.json;$PF/process.json" --load-filaments "$FL" \
   --outputdir "$OUT" --export-3mf "$STEM.gcode.3mf" "$IN"
 [ -s "$OUT/$STEM.gcode.3mf" ] || { echo "FAIL: no .gcode.3mf written" >&2; exit 3; }
 python3 -I "$ROOT/bin/postprocess.py" "$OUT/$STEM.gcode.3mf" O1S
