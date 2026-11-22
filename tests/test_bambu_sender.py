@@ -128,6 +128,50 @@ async def test_running_guard_blocks_button_and_force_overrides(hass, addon, medi
     assert res["result"] == "sent" and len(posts(addon)) == 1
 
 
+def local_status(hass, bambu_device, state):
+    """ha-bambulab's print_status sensor, as the printer's own report would set it."""
+    ent = er.async_get(hass).async_get_or_create(
+        "sensor", "bambu_lab", f"{SERIAL}_print_status", device_id=bambu_device.id,
+        config_entry=hass.config_entries.async_entries("bambu_lab")[0])
+    hass.states.async_set(ent.entity_id, state)
+
+
+async def print_file(hass, **extra):
+    return await hass.services.async_call("bambu_sender", "print_file",
+        {"serial": SERIAL, "file": "benchy.gcode.3mf", **extra}, blocking=True, return_response=True)
+
+
+async def test_local_idle_overrides_stale_cloud_running(hass, addon, media, bambu_device):
+    local_status(hass, bambu_device, "idle")
+    await setup_entry(hass)
+    mock_addon(addon, [{**PRINTER, "print_status": "RUNNING"}])
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    res = await print_file(hass)
+    assert res["result"] == "sent" and len(posts(addon)) == 1
+
+
+@pytest.mark.parametrize("state", ["running", "pause", "prepare"])
+async def test_local_busy_blocks_despite_cloud_idle(hass, addon, media, bambu_device, state):
+    local_status(hass, bambu_device, state)
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    with pytest.raises(HomeAssistantError, match=state.upper()):
+        await print_file(hass)
+    assert posts(addon) == []
+    await print_file(hass, force=True)
+    assert len(posts(addon)) == 1
+
+
+async def test_unavailable_local_status_falls_back_to_cloud(hass, addon, media, bambu_device):
+    local_status(hass, bambu_device, "unavailable")
+    await setup_entry(hass)
+    mock_addon(addon, [{**PRINTER, "print_status": "RUNNING"}])
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    with pytest.raises(HomeAssistantError, match="RUNNING"):
+        await print_file(hass)
+    assert posts(addon) == []
+
+
 async def test_addon_error_message_raised(hass, addon, media, bambu_device):
     await setup_entry(hass)
     addon.post(f"{URL}/api/print", status=502, json={"error": "bridge exploded"})

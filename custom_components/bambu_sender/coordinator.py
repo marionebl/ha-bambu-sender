@@ -11,12 +11,14 @@ import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from . import api
 from .const import (
+    BAMBU_LAB_DOMAIN,
     BUSY_STATUSES,
     CONF_URL,
     DOMAIN,
@@ -87,6 +89,20 @@ class SenderCoordinator(DataUpdateCoordinator[SenderData]):
             files=files,
         )
 
+    def _local_print_status(self, serial: str) -> str | None:
+        """ha-bambulab's print status, or None when HA has no usable value.
+
+        It comes from the printer's own MQTT report; the cloud device list can stay RUNNING
+        long after a print ended.
+        """
+        entity_id = er.async_get(self.hass).async_get_entity_id(
+            "sensor", BAMBU_LAB_DOMAIN, f"{serial}_print_status"
+        )
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        return state.state.upper()
+
     async def async_print(
         self,
         serial: str,
@@ -98,14 +114,16 @@ class SenderCoordinator(DataUpdateCoordinator[SenderData]):
         force: bool = False,
     ) -> dict[str, Any]:
         """Send a validated file to the add-on; returns its answer."""
-        # Fresh status so the RUNNING guard does not act on a 30 s old poll.
-        await self.async_refresh()
-        status = str(
-            ((self.data.printers if self.data else {}).get(serial) or {}).get(
-                "print_status"
-            )
-            or ""
-        ).upper()
+        status = self._local_print_status(serial)
+        if status is None:
+            # Fresh status so the RUNNING guard does not act on a 30 s old poll.
+            await self.async_refresh()
+            status = str(
+                ((self.data.printers if self.data else {}).get(serial) or {}).get(
+                    "print_status"
+                )
+                or ""
+            ).upper()
         if status in BUSY_STATUSES and not force:
             raise HomeAssistantError(
                 f"Printer {serial} is {status}; refusing to send a new print"

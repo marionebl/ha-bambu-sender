@@ -10,7 +10,7 @@ SCAN_INTERVAL = timedelta(seconds=30)
 MEDIA_SUBDIR = "bambu_sender"
 FILE_SUFFIX = ".gcode.3mf"
 SHARE_ROOT = "/share"
-BUSY_STATUSES = {"RUNNING", "PAUSE"}
+BUSY_STATUSES = {"RUNNING", "PAUSE", "PREPARE"}
 OK_RESULTS = {"sent", "success"}
 SEND_TIMEOUT = 300  # seconds; up to 50 MB upload plus the bridge's own work
 CAMERA_MAX_AGE = 5  # seconds before a viewer triggers a new snapshot
