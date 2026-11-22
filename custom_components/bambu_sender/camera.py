@@ -1,4 +1,4 @@
-"""Still camera through the add-on's cloud tunnel (TUTK) snapshot route."""
+"""Camera through the add-on: a live stream (go2rtc plays it) and stills through the snapshot route."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 import time
 
 import aiohttp
-from homeassistant.components.camera import Camera
+from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import CAMERA_MAX_AGE, CAMERA_STALE, CAMERA_TIMEOUT
@@ -24,6 +24,8 @@ async def async_setup_entry(hass, entry, async_add_entities) -> None:
 class CloudCamera(SenderEntity, Camera):
     # Each snapshot opens a new cloud tunnel and waits for a keyframe (10-60 s under qemu).
     # So the entity serves the last image and refreshes it in the background.
+
+    _attr_supported_features = CameraEntityFeature.STREAM
 
     def __init__(self, coordinator, serial) -> None:
         SenderEntity.__init__(self, coordinator, serial, "cloud_camera")
@@ -50,6 +52,10 @@ class CloudCamera(SenderEntity, Camera):
             _LOGGER.debug("Snapshot for %s failed: %s", self.serial, error)
         self._attr_extra_state_attributes = {"last_error": error}
         self.async_write_ha_state()
+
+    async def stream_source(self) -> str:
+        # The add-on shares one cloud tunnel between all viewers, so go2rtc can open this at will.
+        return f"{self.coordinator.url}/api/camera/{self.serial}/live"
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         stale = time.monotonic() - self._fetched > CAMERA_MAX_AGE

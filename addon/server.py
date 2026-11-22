@@ -3,16 +3,19 @@
 
 One boocloud-bridge daemon per Bambu account (the plugin holds one login per process).
 Routes: GET /, GET /api/health, POST /api/login/start, POST /api/login/code, DELETE /api/accounts/<id>,
-GET /api/printers, GET /api/status/<serial>, GET /api/ams/<serial>, POST /api/print.
+GET /api/printers, GET /api/status/<serial>, GET /api/ams/<serial>, GET /api/camera/<serial>/live, POST /api/print.
 """
 import base64
 import binascii
+import http.client
 import json
 import os
+import queue
 import re
 import secrets
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -31,6 +34,7 @@ CERT_SRC = env("BAMBU_CERT", "/amd64/tmp/bambu_agent/cert/slicer_base64.cer")
 DAEMON_CMD = shlex.split(env("BAMBU_DAEMON_CMD", "/bridge.sh"))
 BACKOFF_MIN = float(env("BAMBU_BACKOFF_MIN", "5"))
 BACKOFF_MAX = float(env("BAMBU_BACKOFF_MAX", "60"))
+LIVE_IDLE = float(env("BAMBU_LIVE_IDLE", "30"))  # seconds an unused live upstream stays open for a quick reopen
 MAX_PRINT_BODY = 50 * 1024 * 1024
 MAX_SMALL_BODY = 8192
 ACCOUNTS = os.path.join(DATA, "accounts")
@@ -339,6 +343,15 @@ def camera(h, kind, serial):
     acc = owner(serial)
     if not acc:
         return h.send(404, {"error": "unknown printer"})
+    if kind == "snapshot":
+        with live_lock:
+            live = lives.get(serial)
+        # While a live upstream is open the bridge answers 409 busy to a snapshot, so never ask it.
+        if live and live.ready.wait(90) and not live.error and not live.closed:
+            jpeg = live.frame_jpeg()
+            if jpeg:
+                return h.send(200, jpeg, "image/jpeg")
+            return h.send(502, {"error": "could not decode keyframe", "stage": "decode"})
     # The printer's ipcam does not always say which remote transport it uses, so callers can force one.
     proto = parse_qs(urlsplit(h.path).query).get("protocols", [""])[0]
     qs = "?protocols=" + proto if re.fullmatch(r"[a-z,]{1,40}", proto) else ""
@@ -358,6 +371,270 @@ def camera(h, kind, serial):
             return h.send(502, {"error": "could not decode keyframe", "stage": "decode", "detail": jpeg.stderr.decode(errors="replace")[-300:]})
         return h.send(200, jpeg.stdout, "image/jpeg")
     h.send(status, raw, ctype)
+
+
+# ---- live camera ----
+
+TS_PACKET = 188
+PAT_PID, PMT_PID = 0, 0x1000  # ffmpeg's mpegts muxer puts the PMT here
+
+
+def ffmpeg_jpeg(args, data):
+    """First decoded frame of a stream on stdin, as JPEG; None if it did not decode."""
+    out = subprocess.run(["ffmpeg", "-loglevel", "error"] + args + ["-i", "-", "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-"],
+                         input=data, capture_output=True, timeout=60)
+    return out.stdout if out.stdout and not out.returncode else None
+
+
+class Live:
+    """One upstream connection to the daemon for one printer, fanned out to any number of HTTP clients."""
+
+    def __init__(self, acc, serial, qs):
+        self.acc, self.serial, self.qs = acc, serial, qs
+        self.lock = threading.Lock()
+        self.clients = set()
+        self.closed = False
+        self.ready = threading.Event()  # set on the first frame, or on failure
+        self.error = None  # (status, body, content type) when the daemon refused
+        self.ctype = self.out_type = None  # what the daemon sends, and what our clients get
+        self.jpeg = None  # JPEG mode: newest part, whole
+        self.gop = []  # H.264 mode: TS chunks since the last keyframe, so a joiner decodes at once
+        self.psi = {}  # H.264 mode: newest PAT and PMT packet
+        self.idle_timer = None
+        self.sock = self.proc = None
+        threading.Thread(target=self.run, daemon=True).start()
+
+    # -- upstream --
+
+    def run(self):
+        try:
+            conn = http.client.HTTPConnection(env("BAMBU_DAEMON_HOST", "127.0.0.1"), self.acc.port, timeout=90)  # also ends a stream that stalls
+            conn.connect()
+            self.sock = conn.sock  # http.client drops its own handle once the response starts
+            conn.request("GET", "/camera/%s/live%s" % (self.serial, self.qs))
+            resp = conn.getresponse()
+            self.ctype = resp.getheader("Content-Type", "")
+            if resp.status != 200:
+                self.error = (resp.status, resp.read(), self.ctype)
+                if resp.status == 502 and b"waiting for camera URL callback" in self.error[1]:
+                    # Seen twice on the H2S: after this timeout the plugin stops delivering MQTT status until restarted.
+                    log("[%s] camera URL callback timed out, restarting daemon" % self.acc.id)
+                    self.acc.daemon.restart()
+            else:
+                if self.ctype.startswith("video/h264"):
+                    self.out_type = "video/mp2t"
+                    self.run_h264(resp)
+                elif self.ctype.startswith("multipart/x-mixed-replace"):
+                    self.out_type = self.ctype
+                    self.run_jpeg(resp)
+                else:
+                    self.error = (502, b'{"error": "unexpected live stream type"}', "application/json")
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            if not self.ready.is_set():
+                self.error = (503, json.dumps({"error": "daemon not reachable: " + type(e).__name__}).encode(), "application/json")
+        finally:
+            self.close()
+
+    def run_h264(self, resp):
+        try:
+            rate = float(json.loads(resp.getheader("x-stream-info", "{}")).get("frame_rate"))
+        except (TypeError, ValueError):
+            rate = 0
+        # The raw stream has no timestamps: stamp frames at the advertised rate (15 if unknown).
+        # Short probing keeps the start fast. Stream copy needs a camera feed without B-frames.
+        self.proc = subprocess.Popen(
+            ["ffmpeg", "-loglevel", "error", "-probesize", "32", "-analyzeduration", "0",
+             "-framerate", str(rate if 1 <= rate <= 60 else 15), "-f", "h264", "-i", "-",
+             "-c", "copy", "-flush_packets", "1", "-f", "mpegts", "-"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        threading.Thread(target=self.read_ts, daemon=True).start()
+        try:
+            while True:
+                data = resp.read1(65536)
+                if not data:
+                    break
+                self.proc.stdin.write(data)
+                self.proc.stdin.flush()
+        except (BrokenPipeError, ValueError):
+            pass  # ffmpeg or the stream is gone; read_ts and close() finish up
+        finally:
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
+
+    def read_ts(self):
+        rest = b""
+        fd = self.proc.stdout.fileno()
+        while True:
+            data = os.read(fd, 65536)
+            if not data:
+                return self.close()
+            data = rest + data
+            n = len(data) // TS_PACKET * TS_PACKET
+            chunk, rest = data[:n], data[n:]
+            if not chunk:
+                continue
+            key = None
+            for off in range(0, n, TS_PACKET):
+                p = chunk[off:off + TS_PACKET]
+                pid = (p[1] & 0x1F) << 8 | p[2]
+                if pid in (PAT_PID, PMT_PID):
+                    self.psi[pid] = p
+                elif p[1] & 0x40 and p[3] & 0x20 and p[4] and p[5] & 0x40:  # payload start with random access flag: a keyframe
+                    key = off
+            with self.lock:
+                if key is not None:
+                    self.gop = [chunk[key:]]
+                elif self.gop:
+                    self.gop.append(chunk)
+                self.broadcast(chunk)
+            if key is not None:
+                self.ready.set()
+
+    def run_jpeg(self, resp):
+        while True:
+            part = resp.readline()
+            if not part:
+                return
+            if not part.startswith(b"--"):
+                continue
+            head, length = part, 0
+            while True:
+                line = resp.readline()
+                head += line
+                if line.lower().startswith(b"content-length:"):
+                    length = int(line.split(b":")[1])
+                if line in (b"\r\n", b"\n", b""):
+                    break
+            body = resp.read(length)
+            if len(body) < length:
+                return
+            tail = resp.readline()  # the CRLF after the body
+            with self.lock:
+                self.jpeg = body
+                self.broadcast(head + body + tail)
+            self.ready.set()
+
+    def broadcast(self, data):
+        for c in list(self.clients):
+            try:
+                c.put_nowait(data)
+            except queue.Full:
+                self.drop(c)  # a client that cannot keep up must not hold memory
+
+    def drop(self, c):
+        self.clients.discard(c)
+        while not c.empty():
+            c.get_nowait()
+        c.put_nowait(None)
+
+    # -- clients --
+
+    def join(self):
+        """A queue of byte chunks for one client; None ends it. Starts at a keyframe or part boundary."""
+        c = queue.Queue(maxsize=2048)
+        with self.lock:
+            if self.closed:
+                c.put(None)
+                return c
+            if self.idle_timer:
+                self.idle_timer.cancel()
+                self.idle_timer = None
+            if self.jpeg is not None:
+                c.put(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(self.jpeg) + self.jpeg + b"\r\n")
+            else:
+                for chunk in list(self.psi.values()) + self.gop:
+                    c.put_nowait(chunk)
+            self.clients.add(c)
+        return c
+
+    def leave(self, c):
+        with self.lock:
+            self.clients.discard(c)
+            if not self.clients and not self.closed:
+                self.idle_timer = threading.Timer(LIVE_IDLE, self.close)
+                self.idle_timer.daemon = True
+                self.idle_timer.start()
+
+    def close(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            if self.idle_timer:
+                self.idle_timer.cancel()
+            clients, self.clients = list(self.clients), set()
+        with live_lock:
+            if lives.get(self.serial) is self:
+                del lives[self.serial]
+        for c in clients:
+            try:
+                c.put_nowait(None)
+            except queue.Full:
+                pass
+        if not self.ready.is_set() and not self.error:
+            self.error = (502, b'{"error": "stream ended before the first frame"}', "application/json")
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)  # wakes the blocked read; the daemon then closes the cloud tunnel
+            except OSError:
+                pass
+            self.sock.close()
+        if self.proc and self.proc.poll() is None:
+            self.proc.kill()
+        self.ready.set()
+
+    # -- snapshot --
+
+    def frame_jpeg(self):
+        """The newest frame as JPEG (H.264: the last keyframe, whatever its age); None if there is none or it did not decode."""
+        with self.lock:
+            if self.closed:
+                return None
+            jpeg, data = self.jpeg, b"".join(list(self.psi.values()) + self.gop)
+        if jpeg is not None:
+            return jpeg
+        return ffmpeg_jpeg(["-f", "mpegts"], data) if data else None
+
+
+lives = {}  # serial -> Live
+live_lock = threading.Lock()
+
+
+def get_live(h, serial):
+    acc = owner(serial)
+    if not acc:
+        return h.send(404, {"error": "unknown printer"})
+    proto = parse_qs(urlsplit(h.path).query).get("protocols", [""])[0]
+    qs = "?protocols=" + proto if re.fullmatch(r"[a-z,]{1,40}", proto) else ""
+    with live_lock:
+        live = lives.get(serial)
+        if not live:
+            live = lives[serial] = Live(acc, serial, qs)
+        q = live.join()
+    # Same budget as a snapshot: minting plus the first keyframe can take 60 s under qemu.
+    if not live.ready.wait(100):
+        live.close()
+        return h.send(504, {"error": "no frame from the camera"})
+    if live.error:
+        return h.send(*live.error)
+    h.send_response(200)  # HTTP/1.0: the body ends when we close
+    h.send_header("Content-Type", live.out_type)
+    h.send_header("Cache-Control", "no-store")
+    h.end_headers()
+    h.close_connection = True
+    try:
+        while True:
+            chunk = q.get()
+            if chunk is None:
+                break
+            h.wfile.write(chunk)
+            h.wfile.flush()
+    except OSError:
+        pass  # the viewer left
+    finally:
+        live.leave(q)
 
 
 def daemon_json(acc, path, timeout):
@@ -576,6 +853,7 @@ ROUTES = [
     ("GET", r"/api/status/" + SER, lambda h, m, b: proxy(h, "/status/", m.group(1)), 0),
     ("GET", r"/api/ams/" + SER, lambda h, m, b: proxy(h, "/ams/", m.group(1)), 0),
     ("GET", r"/api/camera/" + SER + r"/url", lambda h, m, b: camera(h, "url", m.group(1)), 0),
+    ("GET", r"/api/camera/" + SER + r"/live", lambda h, m, b: get_live(h, m.group(1)), 0),
     ("GET", r"/api/camera/" + SER + r"/snapshot", lambda h, m, b: camera(h, "snapshot", m.group(1)), 0),
     ("POST", r"/api/login/start", post_login_start, MAX_SMALL_BODY),
     ("POST", r"/api/login/code", post_login_code, MAX_SMALL_BODY),

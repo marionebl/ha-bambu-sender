@@ -243,6 +243,14 @@ async def test_camera_serves_snapshot_and_caches(hass, addon, media, bambu_devic
     assert len(snaps) == 1  # second view within CAMERA_MAX_AGE uses the cache
 
 
+async def test_camera_can_stream_from_the_addon_live_route(hass, addon, media, bambu_device):
+    from homeassistant.components.camera import CameraEntityFeature, get_camera_from_entity_id
+    await setup_entry(hass)
+    cam = get_camera_from_entity_id(hass, CAMERA)
+    assert cam.supported_features & CameraEntityFeature.STREAM
+    assert await cam.stream_source() == f"{URL}/api/camera/{SERIAL}/live"
+
+
 async def test_camera_error_is_reported(hass, addon, media, bambu_device):
     from homeassistant.components.camera import async_get_image
     addon.get(f"{URL}/api/camera/{SERIAL}/snapshot", status=502, json={"error": "timeout after 20s"})

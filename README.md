@@ -6,10 +6,21 @@ Home Assistant integration for the Bambu Sender add-on. It adds cloud controls t
 Each printer gets these entities:
 
 - Print file select, timelapse and bed leveling switches, and a start button (`bambu_sender.print_file`)
-- Cloud camera (still image through the Bambu cloud tunnel)
+- Cloud camera: a live stream and still images through the Bambu cloud tunnel (see [Camera](#camera))
 - Chamber light (cloud): sends through the add-on and shows the state that ha-bambulab reports
 - Re-read slot 1–4: the AMS reads the spool's RFID tag again, and you do not have to remove the spool
 - Cloud sender status sensor
+
+## Camera
+
+The camera entity plays a live stream. HA's go2rtc integration serves it, so the browser gets WebRTC.
+
+- The add-on opens one cloud tunnel per printer and shares it between all viewers.
+- H.264 printers are repackaged to MPEG-TS with ffmpeg and no re-encoding. This needs a feed without B-frames.
+- A new viewer starts at the last keyframe. The tunnel stays open for 30 s after the last viewer leaves, so a reopen starts fast.
+- Printers that send JPEG frames are passed through unchanged.
+- The stream URL is `<add-on>/api/camera/<serial>/live`.
+- Still images come from the last keyframe of the live stream while it runs, because the bridge allows one tunnel per printer. Otherwise each still opens a new tunnel and takes 10 to 60 s.
 
 ## Uploading print files
 

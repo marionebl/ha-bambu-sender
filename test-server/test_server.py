@@ -53,7 +53,7 @@ def free_range(n=4):
 class Server:
     """One server.py process with its own data dir and log file."""
 
-    def __init__(self, cloud, daemon_cmd=MOCK, setup=None):
+    def __init__(self, cloud, daemon_cmd=MOCK, setup=None, extra_env=None):
         self.tmp = tempfile.TemporaryDirectory()
         self.data = os.path.join(self.tmp.name, "data")
         self.cert = os.path.join(self.tmp.name, "slicer_base64.cer")
@@ -67,7 +67,8 @@ class Server:
         self.bodies = []  # every HTTP response body we received
         env = dict(os.environ, BAMBU_DATA=self.data, BAMBU_PORT=str(self.port), BAMBU_HOST="127.0.0.1",
                    BAMBU_API_BASE="http://127.0.0.1:%d" % cloud.server_port, BAMBU_DAEMON_PORT_BASE=str(self.base),
-                   BAMBU_CERT=self.cert, BAMBU_DAEMON_CMD=daemon_cmd, BAMBU_BACKOFF_MIN="0.2", BAMBU_BACKOFF_MAX="0.8")
+                   BAMBU_CERT=self.cert, BAMBU_DAEMON_CMD=daemon_cmd, BAMBU_BACKOFF_MIN="0.2", BAMBU_BACKOFF_MAX="0.8",
+                   **(extra_env or {}))
         self.log = open(self.logpath, "w")
         self.proc = subprocess.Popen([sys.executable, "-I", SERVER_PY], env=env, stdout=self.log, stderr=self.log,
                                      start_new_session=True)  # so close() can kill the daemons too
@@ -447,6 +448,104 @@ class TwoDaemonsLogTest(unittest.TestCase):
                 self.assertNotIn(secret, log)
         finally:
             s.close()
+
+
+class LiveTest(unittest.TestCase):
+    """The live camera route against the mock daemon's streams (SERIAL001 H.264, SERIAL002 JPEG)."""
+    IDLE = 2  # seconds the add-on keeps an unused upstream open
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cloud = mock_cloud.start()
+        cls.s = Server(cls.cloud, extra_env={"BAMBU_LIVE_IDLE": str(cls.IDLE)})
+        login(cls.s, "a@example.com")
+        daemon_up(cls.s, cls.s.base)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def setUp(self):
+        # An earlier test may have left an upstream in its idle period.
+        self.assertTrue(wait_for(lambda: self.events().count("connect") == self.events().count("disconnect"), 10))
+        self.start = len(self.s.daemon(self.s.base, "/live-log"))
+
+    def events(self, serial=None):
+        log = self.s.daemon(self.s.base, "/live-log")[getattr(self, "start", 0):]
+        return [e for e, who in log if serial in (None, who)]
+
+    def open(self, serial, path="live"):
+        c = http.client.HTTPConnection("127.0.0.1", self.s.port, timeout=30)
+        c.request("GET", "/api/camera/%s/%s" % (serial, path))
+        return c, c.getresponse()
+
+    def grab(self, serial, seconds):
+        """Read the live route for some seconds, then hang up."""
+        c, r = self.open(serial)
+        data, end = b"", time.time() + seconds
+        while time.time() < end:
+            data += r.read1(65536)
+        r.close()  # the response keeps the socket open until it is closed too
+        c.close()
+        return r, data
+
+    def test_h264_comes_out_as_mpegts(self):
+        r, data = self.grab("SERIAL001", 2.5)
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "video/mp2t"))
+        self.assertEqual(data[0], 0x47)
+        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,width,height", "-of", "json", "-"],
+                               input=data, capture_output=True, check=True)
+        self.assertEqual([(x["codec_name"], x["width"], x["height"]) for x in json.loads(probe.stdout)["streams"]],
+                         [("h264", 320, 240)])
+
+    def test_two_clients_share_one_upstream(self):
+        (c1, r1), (c2, r2) = self.open("SERIAL001"), self.open("SERIAL001")
+        for r in (r1, r2):
+            self.assertEqual(r.status, 200)
+            self.assertEqual(r.read1(65536)[0], 0x47)
+        self.assertEqual(self.events("SERIAL001"), ["connect"])
+        for r, c in ((r1, c1), (r2, c2)):
+            r.close()
+            c.close()
+
+    def test_upstream_closes_after_idle_delay_not_before(self):
+        self.grab("SERIAL001", 0.5)
+        left = time.time()
+        time.sleep(self.IDLE - 0.8)
+        self.assertEqual(self.events(), ["connect"])  # still open, ready for a reopen
+        self.assertTrue(wait_for(lambda: "disconnect" in self.events(), 5))
+        self.assertGreaterEqual(time.time() - left, self.IDLE - 0.1)
+        # A reopen inside the delay reuses the upstream and cancels the close.
+        self.grab("SERIAL001", 0.3)
+        self.grab("SERIAL001", 0.3)
+        self.assertEqual(self.events().count("connect"), 2)  # one before, one for the two reopens together
+
+    def test_jpeg_passes_multipart_through(self):
+        c, r = self.open("SERIAL002")
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "multipart/x-mixed-replace; boundary=frame"))
+        data = b""
+        while data.count(b"--frame") < 3:
+            data += r.read1(65536)
+        r.close()
+        c.close()
+        self.assertTrue(data.startswith(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "))
+        self.assertIn(b"\xff\xd8\xff", data)
+
+    def test_snapshot_during_live_opens_no_second_upstream(self):
+        for serial in ("SERIAL001", "SERIAL002"):
+            c, r = self.open(serial)
+            r.read1(65536)
+            time.sleep(1)  # the mock answers 409 and logs a "snapshot" event if one reaches it
+            st, body = self.s.req("GET", "/api/camera/%s/snapshot" % serial)
+            self.assertEqual(st, 200, body[:200])
+            self.assertEqual(body[:3], b"\xff\xd8\xff")
+            self.assertEqual(self.events(serial), ["connect"])  # no second upstream, no snapshot at the bridge
+            r.close()
+            c.close()
+            time.sleep(0.5)  # no viewer left, upstream in its idle period: still no bridge snapshot
+            self.assertEqual(self.s.req("GET", "/api/camera/%s/snapshot" % serial)[0], 200)
+            self.assertEqual(self.events(serial), ["connect"])
+            self.setUp()  # wait for the idle close before the next serial
 
 
 class MigrationTest(unittest.TestCase):
