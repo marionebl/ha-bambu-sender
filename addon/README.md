@@ -24,7 +24,7 @@ An update from 0.1 moves `/data/credentials.toml` and `/data/printers.json` into
 
 ## API
 
-All routes answer JSON, except `/`. Call them through the ingress path.
+All routes answer JSON, except `/` and `/api/camera/{serial}/stream.mjpeg`. Call them through the ingress path.
 
 | Route | Answer |
 | --- | --- |
@@ -35,6 +35,8 @@ All routes answer JSON, except `/`. Call them through the ingress path.
 | `GET /api/printers` | The bound printers of all accounts (all fields Bambu gives, except the LAN access code), each with `serial`, `account`, `email` and `live` (the daemon's state, or null). |
 | `GET /api/status/{serial}` | The printer's raw MQTT status, `{"print": {...}}`. |
 | `GET /api/ams/{serial}` | `{"ams": ..., "vt_tray": ...}`, the filaments in the AMS. |
+| `GET /api/camera/{serial}/snapshot` | A JPEG. While a live stream of that printer runs, its newest frame (under 5 s old); otherwise a new cloud tunnel is opened, which takes 2 to 60 s. Errors are JSON `{stage, code, error}`. |
+| `GET /api/camera/{serial}/stream.mjpeg` | Live video, `multipart/x-mixed-replace; boundary=frame` with one JPEG per part. Optional `?protocols=`. All viewers of a printer share one bridge stream and one ffmpeg, which stop 15 s after the last viewer leaves (`BAMBU_STREAM_GRACE`). Errors before the first frame are JSON like the snapshot's. |
 | `POST /api/print` | Body `{"serial", "filename", "file_b64", "timelapse"?, "bed_leveling"?, "use_ams"?}`. Sends the `.gcode.3mf` to the daemon and returns its answer with its status code. Bodies over 50 MB get 413. |
 | `GET /` | A small page to list, add and remove accounts. |
 

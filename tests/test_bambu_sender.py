@@ -287,6 +287,27 @@ async def test_camera_serves_snapshot_and_caches(hass, addon, media, bambu_devic
     assert len(snaps) == 1  # second view within CAMERA_MAX_AGE uses the cache
 
 
+async def test_camera_mjpeg_proxies_addon_stream(hass, hass_client, addon, media, bambu_device):
+    part = b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % len(JPEG) + JPEG + b"\r\n"
+    ctype = "multipart/x-mixed-replace; boundary=frame"
+    addon.get(f"{URL}/api/camera/{SERIAL}/stream.mjpeg", content=part * 3, headers={"Content-Type": ctype})
+    await setup_entry(hass)
+    resp = await (await hass_client()).get(f"/api/camera_proxy_stream/{CAMERA}")
+    assert resp.status == 200
+    assert resp.headers["Content-Type"] == ctype
+    assert await resp.read() == part * 3  # the add-on's bytes pass through untouched
+    assert [c for c in addon.mock_calls if str(c[1]).endswith("/stream.mjpeg")]
+    assert not [c for c in addon.mock_calls if str(c[1]).endswith("/snapshot")]
+
+
+async def test_camera_mjpeg_error_is_reported(hass, hass_client, addon, media, bambu_device):
+    addon.get(f"{URL}/api/camera/{SERIAL}/stream.mjpeg", status=502, json={"error": "no tunnel", "stage": "mint"})
+    await setup_entry(hass)
+    resp = await (await hass_client()).get(f"/api/camera_proxy_stream/{CAMERA}")
+    assert resp.status == 502
+    assert "no tunnel" in hass.states.get(CAMERA).attributes["last_error"]
+
+
 async def test_camera_error_is_reported(hass, addon, media, bambu_device):
     from homeassistant.components.camera import async_get_image
     addon.get(f"{URL}/api/camera/{SERIAL}/snapshot", status=502, json={"error": "timeout after 20s"})

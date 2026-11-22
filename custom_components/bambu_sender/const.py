@@ -15,6 +15,7 @@ OK_RESULTS = {"sent", "success"}
 SEND_TIMEOUT = 300  # seconds; up to 50 MB upload plus the bridge's own work
 CAMERA_MAX_AGE = 5  # seconds before a viewer triggers a new snapshot
 CAMERA_STALE = 60  # older frames are not served; the viewer waits for a new one
+CAMERA_FRAME_INTERVAL = 2  # seconds between stills when the live stream is not used
 CAMERA_TIMEOUT = 120  # the add-on itself waits up to 90 s for the bridge
 AMS_SLOTS = 4  # one AMS (ams_id 0) per printer today
 CONF_UPLOAD_SECRET = "upload_secret"

@@ -3,16 +3,20 @@
 
 One boocloud-bridge daemon per Bambu account (the plugin holds one login per process).
 Routes: GET /, GET /api/health, POST /api/login/start, POST /api/login/code, DELETE /api/accounts/<id>,
-GET /api/printers, GET /api/status/<serial>, GET /api/ams/<serial>, POST /api/print.
+GET /api/printers, GET /api/status/<serial>, GET /api/ams/<serial>, POST /api/print,
+GET /api/camera/<serial>/stream.mjpeg (live MJPEG).
 """
 import base64
 import binascii
+import http.client
 import json
 import os
+import queue
 import re
 import secrets
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -31,6 +35,8 @@ CERT_SRC = env("BAMBU_CERT", "/amd64/tmp/bambu_agent/cert/slicer_base64.cer")
 DAEMON_CMD = shlex.split(env("BAMBU_DAEMON_CMD", "/bridge.sh"))
 BACKOFF_MIN = float(env("BAMBU_BACKOFF_MIN", "5"))
 BACKOFF_MAX = float(env("BAMBU_BACKOFF_MAX", "60"))
+STREAM_GRACE = float(env("BAMBU_STREAM_GRACE", "15"))  # seconds a stream outlives its last viewer
+SNAPSHOT_MAX_AGE = 5  # a live stream's latest frame this fresh answers /snapshot
 MAX_PRINT_BODY = 50 * 1024 * 1024
 MAX_SMALL_BODY = 8192
 ACCOUNTS = os.path.join(DATA, "accounts")
@@ -339,6 +345,9 @@ def camera(h, kind, serial):
     acc = owner(serial)
     if not acc:
         return h.send(404, {"error": "unknown printer"})
+    live = streams.get(serial)
+    if kind == "snapshot" and live and live.latest and time.monotonic() - live.latest_at < SNAPSHOT_MAX_AGE:
+        return h.send(200, live.latest, "image/jpeg")  # a running stream already has a fresh frame
     # The printer's ipcam does not always say which remote transport it uses, so callers can force one.
     proto = parse_qs(urlsplit(h.path).query).get("protocols", [""])[0]
     qs = "?protocols=" + proto if re.fullmatch(r"[a-z,]{1,40}", proto) else ""
@@ -358,6 +367,184 @@ def camera(h, kind, serial):
             return h.send(502, {"error": "could not decode keyframe", "stage": "decode", "detail": jpeg.stderr.decode(errors="replace")[-300:]})
         return h.send(200, jpeg.stdout, "image/jpeg")
     h.send(status, raw, ctype)
+
+
+# ---- live camera: one bridge stream and one ffmpeg per printer, shared by all viewers ----
+
+streams = {}  # serial -> LiveStream
+streams_lock = threading.Lock()  # guards streams and every stream's clients and timer
+# Low-delay probing: the default waits for several MB or seconds of input before the first frame.
+FFMPEG_MJPEG = ["ffmpeg", "-loglevel", "error", "-probesize", "4096", "-analyzeduration", "0", "-flags", "low_delay",
+                "-f", "h264", "-i", "-", "-an", "-c:v", "mjpeg", "-q:v", "5", "-fps_mode", "passthrough",
+                "-flush_packets", "1", "-f", "mpjpeg", "-boundary_tag", "frame", "-"]
+
+
+class LiveStream:
+    def __init__(self, serial, acc, qs):
+        self.serial, self.acc, self.qs = serial, acc, qs
+        self.clients, self.timer = set(), None
+        self.ready = threading.Event()  # set by the first frame or by a failure
+        self.error = None  # (status, body, ctype) for viewers when it never got going
+        self.dead = False
+        self.latest = self.part = None  # newest JPEG and its multipart framing
+        self.latest_at = 0.0
+        self.conn = self.ffmpeg = None
+
+    def fail(self, status, body, ctype="application/json"):
+        if not self.ready.is_set():
+            self.error = (status, body if isinstance(body, bytes) else json.dumps(body).encode(), ctype)
+        self.finish()
+
+    def finish(self):
+        """Stop everything and tell the viewers; safe from any thread, any number of times."""
+        with streams_lock:
+            self.dead = True
+            if streams.get(self.serial) is self:
+                del streams[self.serial]
+            if self.timer:
+                self.timer.cancel()
+            clients = list(self.clients)
+        for c in clients:
+            put_latest(c, None)
+        if self.conn:
+            if self.conn.sock:
+                try:
+                    self.conn.sock.shutdown(socket.SHUT_RDWR)  # wakes the thread blocked reading the bridge
+                except OSError:
+                    pass
+            self.conn.close()
+        if self.ffmpeg and self.ffmpeg.poll() is None:
+            self.ffmpeg.kill()
+        self.ready.set()
+
+    def run(self):
+        try:
+            # The first keyframe under qemu can take the bridge's full 45 s + 15 s budget.
+            self.conn = http.client.HTTPConnection(urlsplit(self.acc.url("/")).netloc, timeout=90)
+            self.conn.request("GET", "/camera/%s/stream%s" % (self.serial, self.qs))
+            resp = self.conn.getresponse()
+            if resp.status != 200 or not (resp.getheader("Content-Type") or "").startswith("video/h264"):
+                return self.fail(resp.status, resp.read(), resp.getheader("Content-Type") or "application/json")
+            self.ffmpeg = subprocess.Popen(FFMPEG_MJPEG, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except (OSError, http.client.HTTPException):
+            return self.fail(503, {"error": "daemon not reachable"})
+        err = []
+        threading.Thread(target=lambda: err.append(self.ffmpeg.stderr.read()), daemon=True).start()
+        threading.Thread(target=self.feed, args=(resp,), daemon=True).start()
+        try:
+            self.split(self.ffmpeg.stdout)
+        finally:
+            if not self.ready.is_set():
+                self.error = (502, json.dumps({"error": "could not decode stream", "stage": "decode",
+                                               "detail": b"".join(err).decode(errors="replace")[-300:]}).encode(),
+                              "application/json")
+            self.finish()
+
+    def feed(self, resp):
+        try:
+            while chunk := resp.read1(65536):
+                self.ffmpeg.stdin.write(chunk)
+                self.ffmpeg.stdin.flush()
+        except (OSError, http.client.HTTPException, ValueError):
+            pass
+        finally:
+            try:
+                self.ffmpeg.stdin.close()
+            except (OSError, ValueError):
+                pass
+            if not self.ready.is_set():
+                return
+            self.finish()  # the bridge ended the session; viewers reconnect
+
+    def split(self, out):
+        """Cut ffmpeg's mpjpeg output into parts (boundary, headers, body) and hand each to the viewers."""
+        while True:
+            line = out.readline()
+            if not line:
+                return
+            if line.strip() != b"--frame":
+                continue
+            size = 0
+            while h := out.readline().strip():
+                if h.lower().startswith(b"content-length:"):
+                    size = int(h.split(b":")[1])
+            jpeg = out.read(size)
+            if size == 0 or len(jpeg) < size:
+                return
+            part = b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n" % size + jpeg + b"\r\n"
+            self.latest, self.part, self.latest_at = jpeg, part, time.monotonic()
+            with streams_lock:
+                clients = list(self.clients)
+            for c in clients:
+                put_latest(c, part)
+            self.ready.set()
+
+    def leave(self, client):
+        with streams_lock:
+            self.clients.discard(client)
+            if not self.clients and not self.dead:
+                self.timer = threading.Timer(STREAM_GRACE, self.expire)
+                self.timer.daemon = True
+                self.timer.start()
+
+    def expire(self):
+        with streams_lock:
+            if self.clients:
+                return
+        log("[%s] stream %s idle, stopping" % (self.acc.id, self.serial))
+        self.finish()
+
+
+def put_latest(q, part):
+    """A slow viewer skips frames instead of lagging or blocking the others."""
+    while True:
+        try:
+            return q.put_nowait(part)
+        except queue.Full:
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                pass
+
+
+def join_stream(serial, acc, qs):
+    with streams_lock:
+        st = streams.get(serial)
+        new = st is None or st.dead
+        if new:
+            st = streams[serial] = LiveStream(serial, acc, qs)
+        if st.timer:
+            st.timer.cancel()
+        client = queue.Queue(maxsize=2)
+        if st.part:
+            client.put_nowait(st.part)  # a late viewer sees a picture at once
+        st.clients.add(client)
+    if new:
+        threading.Thread(target=st.run, daemon=True).start()
+    return st, client
+
+
+def stream_mjpeg(h, serial):
+    acc = owner(serial)
+    if not acc:
+        return h.send(404, {"error": "unknown printer"})
+    proto = parse_qs(urlsplit(h.path).query).get("protocols", [""])[0]
+    st, client = join_stream(serial, acc, "?protocols=" + proto if re.fullmatch(r"[a-z,]{1,40}", proto) else "")
+    try:
+        if not st.ready.wait(100) or st.error:
+            return h.send(*(st.error or (504, {"error": "no video frame in time", "stage": "stream"})))
+        h.send_response(200)
+        h.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        h.send_header("Cache-Control", "no-store")
+        h.end_headers()
+        h.close_connection = True  # no Content-Length: the body ends when the connection does
+        while (part := client.get()) is not None:
+            h.wfile.write(part)
+            h.wfile.flush()
+    except OSError:
+        pass  # the viewer went away
+    finally:
+        st.leave(client)
 
 
 def daemon_json(acc, path, timeout):
@@ -577,6 +764,7 @@ ROUTES = [
     ("GET", r"/api/ams/" + SER, lambda h, m, b: proxy(h, "/ams/", m.group(1)), 0),
     ("GET", r"/api/camera/" + SER + r"/url", lambda h, m, b: camera(h, "url", m.group(1)), 0),
     ("GET", r"/api/camera/" + SER + r"/snapshot", lambda h, m, b: camera(h, "snapshot", m.group(1)), 0),
+    ("GET", r"/api/camera/" + SER + r"/stream\.mjpeg", lambda h, m, b: stream_mjpeg(h, m.group(1)), 0),
     ("POST", r"/api/login/start", post_login_start, MAX_SMALL_BODY),
     ("POST", r"/api/login/code", post_login_code, MAX_SMALL_BODY),
     ("DELETE", r"/api/accounts/([a-z0-9_]{1,64})", delete_account, 0),

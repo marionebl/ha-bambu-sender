@@ -53,7 +53,7 @@ def free_range(n=4):
 class Server:
     """One server.py process with its own data dir and log file."""
 
-    def __init__(self, cloud, daemon_cmd=MOCK, setup=None):
+    def __init__(self, cloud, daemon_cmd=MOCK, setup=None, extra_env=None):
         self.tmp = tempfile.TemporaryDirectory()
         self.data = os.path.join(self.tmp.name, "data")
         self.cert = os.path.join(self.tmp.name, "slicer_base64.cer")
@@ -67,7 +67,7 @@ class Server:
         self.bodies = []  # every HTTP response body we received
         env = dict(os.environ, BAMBU_DATA=self.data, BAMBU_PORT=str(self.port), BAMBU_HOST="127.0.0.1",
                    BAMBU_API_BASE="http://127.0.0.1:%d" % cloud.server_port, BAMBU_DAEMON_PORT_BASE=str(self.base),
-                   BAMBU_CERT=self.cert, BAMBU_DAEMON_CMD=daemon_cmd, BAMBU_BACKOFF_MIN="0.2", BAMBU_BACKOFF_MAX="0.8")
+                   BAMBU_CERT=self.cert, BAMBU_DAEMON_CMD=daemon_cmd, BAMBU_BACKOFF_MIN="0.2", BAMBU_BACKOFF_MAX="0.8", **(extra_env or {}))
         self.log = open(self.logpath, "w")
         self.proc = subprocess.Popen([sys.executable, "-I", SERVER_PY], env=env, stdout=self.log, stderr=self.log,
                                      start_new_session=True)  # so close() can kill the daemons too
@@ -487,6 +487,117 @@ class MigrationTest(unittest.TestCase):
             self.assertNotIn(b"ACCESS-OLD", b"".join(s.bodies))
         finally:
             s.close()
+
+
+def read_part(r):
+    """One part of a multipart/x-mixed-replace body: (headers, bytes)."""
+    assert r.readline() == b"--frame\r\n"
+    headers = {}
+    while (line := r.readline()) != b"\r\n":
+        k, v = line.decode().strip().split(":", 1)
+        headers[k.lower()] = v.strip()
+    body = r.read(int(headers["content-length"]))
+    assert r.readline() == b"\r\n"
+    return headers, body
+
+
+def open_stream(s, serial="SERIAL001"):
+    c = http.client.HTTPConnection("127.0.0.1", s.port, timeout=30)
+    c.request("GET", "/api/camera/%s/stream.mjpeg" % serial)
+    return c, c.getresponse()
+
+
+def close_stream(c, r):
+    r.close()  # the response keeps its own handle on the socket
+    c.close()
+
+
+def ffmpeg_children(pid):
+    out = []
+    for d in os.listdir("/proc"):
+        try:
+            with open("/proc/%s/stat" % d) as f:
+                stat_ = f.read()
+            with open("/proc/%s/cmdline" % d, "rb") as f:
+                cmd = f.read()
+        except OSError:
+            continue
+        if d.isdigit() and int(stat_.rsplit(")", 1)[1].split()[1]) == pid and b"ffmpeg" in cmd:
+            out.append(int(d))
+    return out
+
+
+class StreamTest(unittest.TestCase):
+    """Live MJPEG: one bridge stream and one ffmpeg per printer, shared, stopped after a grace period."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cloud = mock_cloud.start()
+        cls.s = Server(cls.cloud, extra_env={"BAMBU_STREAM_GRACE": "1"})
+        login(cls.s, "a@example.com")
+        daemon_up(cls.s, cls.s.base)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.s.close()
+
+    def stats(self):
+        return self.s.daemon(self.s.base, "/streams")
+
+    def test_01_yields_jpeg_parts(self):
+        began = time.time()
+        c, r = open_stream(self.s)
+        self.assertEqual(r.status, 200)
+        self.assertEqual(r.getheader("Content-Type"), "multipart/x-mixed-replace; boundary=frame")
+        for _ in range(10):
+            headers, body = read_part(r)
+            self.assertEqual(headers["content-type"], "image/jpeg")
+            self.assertTrue(body.startswith(b"\xff\xd8") and body.endswith(b"\xff\xd9"))
+        self.assertLess(time.time() - began, 5)  # first frame plus nine more at the clip's 10 fps
+        close_stream(c, r)
+        wait_for(lambda: self.stats()["active"] == 0, 8)
+
+    def test_02_two_viewers_share_one_session_and_other_routes_answer(self):
+        wait_for(lambda: self.stats()["active"] == 0, 6)  # the previous test's grace period
+        total = self.stats()["total"]
+        (c1, r1), (c2, r2) = open_stream(self.s), open_stream(self.s)
+        read_part(r1), read_part(r2)
+        self.assertEqual(self.stats(), {"total": total + 1, "active": 1})
+        self.assertEqual(len(ffmpeg_children(self.s.proc.pid)), 1)
+        began = time.time()
+        st, p = self.s.json("GET", "/api/printers")  # a long response must not block the others
+        self.assertEqual(st, 200)
+        self.assertLess(time.time() - began, 3)
+        st, body = self.s.req("GET", "/api/camera/SERIAL001/snapshot")  # the mock's own snapshot is a 502
+        self.assertEqual(st, 200)
+        self.assertTrue(body.startswith(b"\xff\xd8") and body.endswith(b"\xff\xd9"))
+        close_stream(c1, r1)
+        time.sleep(1.8)  # more than the grace: the second viewer keeps it alive
+        self.assertEqual(self.stats()["active"], 1)
+        read_part(r2)
+        close_stream(c2, r2)
+
+    def test_03_stops_after_grace(self):
+        wait_for(lambda: self.stats()["active"] == 0 and not ffmpeg_children(self.s.proc.pid), 6)
+        self.assertEqual(self.stats()["active"], 0)
+        self.assertEqual(ffmpeg_children(self.s.proc.pid), [])
+        total = self.stats()["total"]
+        c, r = open_stream(self.s)  # a new viewer starts a new session
+        read_part(r)
+        self.assertEqual(self.stats()["total"], total + 1)
+        close_stream(c, r)
+
+    def test_04_upstream_error_maps_to_json(self):
+        wait_for(lambda: not ffmpeg_children(self.s.proc.pid), 6)
+        st, d = self.s.json("GET", "/api/camera/SERIAL002/stream.mjpeg")
+        self.assertEqual((st, d["stage"], d["code"]), (502, "mint", -1))
+        self.assertEqual(self.s.req("GET", "/api/camera/NOPE/stream.mjpeg")[0], 404)
+        self.assertEqual(ffmpeg_children(self.s.proc.pid), [])
+
+    def test_05_snapshot_falls_back_without_stream(self):
+        wait_for(lambda: self.stats()["active"] == 0, 6)
+        st, d = self.s.json("GET", "/api/camera/SERIAL001/snapshot")  # the mock's tunnel route answers 502
+        self.assertEqual((st, d["stage"]), (502, "mint"))
 
 
 if __name__ == "__main__":

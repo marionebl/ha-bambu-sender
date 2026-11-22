@@ -1,4 +1,4 @@
-"""Still camera through the add-on's cloud tunnel (TUTK) snapshot route."""
+"""Camera through the add-on: live MJPEG proxy, and stills from its snapshot route."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ import logging
 import time
 
 import aiohttp
+from aiohttp import web
 from homeassistant.components.camera import Camera
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_aiohttp_proxy_stream, async_get_clientsession
 
-from .const import CAMERA_MAX_AGE, CAMERA_STALE, CAMERA_TIMEOUT
+from .const import CAMERA_FRAME_INTERVAL, CAMERA_MAX_AGE, CAMERA_STALE, CAMERA_TIMEOUT
 from .entity import SenderEntity
 from .platform_helper import add_per_printer
 
@@ -32,6 +33,7 @@ class CloudCamera(SenderEntity, Camera):
         self._fetched = 0.0
         self._task: asyncio.Task | None = None
         self._attr_extra_state_attributes = {"last_error": None}
+        self._attr_frame_interval = CAMERA_FRAME_INTERVAL
 
     async def _fetch(self) -> None:
         session = async_get_clientsession(self.hass)
@@ -50,6 +52,33 @@ class CloudCamera(SenderEntity, Camera):
             _LOGGER.debug("Snapshot for %s failed: %s", self.serial, error)
         self._attr_extra_state_attributes = {"last_error": error}
         self.async_write_ha_state()
+
+    def _set_error(self, error: str | None) -> None:
+        self._attr_extra_state_attributes = {"last_error": error}
+        self.async_write_ha_state()
+
+    async def handle_async_mjpeg_stream(self, request: web.Request) -> web.StreamResponse | None:
+        # The add-on shares one bridge session between viewers; the first frame can take up to 90 s.
+        url = f"{self.coordinator.url}/api/camera/{self.serial}/stream.mjpeg"
+        session = async_get_clientsession(self.hass)
+        try:
+            async with asyncio.timeout(CAMERA_TIMEOUT):
+                resp = await session.get(url, timeout=aiohttp.ClientTimeout(total=None, sock_read=CAMERA_TIMEOUT))
+        except (aiohttp.ClientError, TimeoutError) as err:
+            self._set_error(f"{type(err).__name__}: {err}")
+            raise web.HTTPBadGateway from err
+        try:
+            if resp.status != 200:
+                body = await resp.read()
+                self._set_error(f"HTTP {resp.status}: {body[:300].decode(errors='replace')}")
+                raise web.HTTPBadGateway
+            if self._attr_extra_state_attributes["last_error"]:
+                self._set_error(None)
+            return await async_aiohttp_proxy_stream(
+                self.hass, request, resp.content, resp.headers.get("Content-Type"), timeout=CAMERA_TIMEOUT
+            )
+        finally:
+            resp.close()
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         stale = time.monotonic() - self._fetched > CAMERA_MAX_AGE

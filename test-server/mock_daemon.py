@@ -4,6 +4,8 @@ import base64
 import json
 import os
 import sys
+import threading
+import time
 import tomllib
 from email.parser import BytesParser
 from email.policy import default
@@ -12,7 +14,41 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 AMS = {"ams": {"ams": [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "tray_color": "FF0000FF"}]}]}, "vt_tray": {}}
 
 
+CLIP = os.path.join(os.path.dirname(os.path.abspath(__file__)), "clip.h264")  # 3 s, 10 fps, keyframe every 10
+
+
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"  # chunked streaming needs it; every other reply sets Content-Length
+
+    def stream(self):
+        """Like the real daemon: endless chunked Annex B at the clip's own pace, until the client leaves."""
+        s = self.server
+        if self.path.split("/")[2] == "SERIAL002":
+            return self.reply(502, {"error": "no tunnel", "stage": "mint", "code": -1})
+        with open(CLIP, "rb") as f:
+            clip = f.read()
+        step = len(clip) // 30  # one tenth of a second of video
+        with s.stream_lock:
+            s.stream_total += 1
+            s.stream_active += 1
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "video/h264")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            while True:
+                for i in range(0, len(clip), step):
+                    chunk = clip[i:i + step]
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+                    self.wfile.flush()
+                    time.sleep(0.1)
+        except OSError:
+            pass
+        finally:
+            with s.stream_lock:
+                s.stream_active -= 1
+            self.close_connection = True
+
     def reply(self, status, obj):
         data = json.dumps(obj).encode()
         self.send_response(status)
@@ -28,6 +64,10 @@ class Handler(BaseHTTPRequestHandler):
                              "credentials": s.creds, "home": os.environ.get("HOME"), "pid": os.getpid()})
         elif self.path == "/printers":
             self.reply(200, {"printers": [{"name": "p", "serial": x, "gcode_state": "IDLE"} for x in s.serials[:1]]})
+        elif self.path == "/streams":  # mock only: stream requests served so far and still open
+            self.reply(200, {"total": s.stream_total, "active": s.stream_active})
+        elif self.path.startswith("/camera/") and self.path.split("?")[0].endswith("/stream"):
+            self.stream()
         elif self.path == "/commands":  # mock only: what /command received
             self.reply(200, s.commands)
         elif self.path == "/prints":  # mock only: what /print received
@@ -75,5 +115,7 @@ if __name__ == "__main__":
         serials = [p["serial"] for p in tomllib.load(f).get("printers", {}).values()]
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.creds, server.serials, server.prints, server.commands = creds, serials, [], []
+    server.stream_lock, server.stream_total, server.stream_active = threading.Lock(), 0, 0
+    server.daemon_threads = True
     print("mock daemon up for " + creds, flush=True)
     server.serve_forever()
