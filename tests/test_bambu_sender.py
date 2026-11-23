@@ -1,4 +1,5 @@
 import base64
+import pathlib
 from datetime import timedelta
 
 import aiohttp
@@ -280,6 +281,38 @@ async def test_camera_does_not_serve_stale_frame(hass, addon, media, bambu_devic
     addon.get(f"{URL}/api/camera/{SERIAL}/snapshot", side_effect=slow)
     img = await async_get_image(hass, CAMERA)
     assert img.content == JPEG + b"new"  # waited for the new frame instead of the 2-minute-old one
+
+
+OFFLINE = [{**PRINTER, "live": {"cached": False}}]  # the bridge has no MQTT status for the printer
+
+
+async def test_camera_offline_shows_placeholder_without_stream(hass, addon, media, bambu_device):
+    from homeassistant.components.camera import CameraEntityFeature, async_get_image, get_camera_from_entity_id
+    addon.get(f"{URL}/api/camera/{SERIAL}/snapshot", content=JPEG, headers={"Content-Type": "image/jpeg"})
+    entry = await setup_entry(hass)
+    await async_get_image(hass, CAMERA)
+    assert hass.states.get(CAMERA).attributes["frame_time"]
+    mock_addon(addon, OFFLINE)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    cam = get_camera_from_entity_id(hass, CAMERA)
+    assert not cam.supported_features & CameraEntityFeature.STREAM
+    assert await cam.stream_source() is None
+    assert hass.states.get(CAMERA).attributes["online"] is False
+    addon.clear_requests()
+    img = await async_get_image(hass, CAMERA)
+    assert img.content == (pathlib.Path(__file__).parents[1] / "custom_components/bambu_sender/offline.jpg").read_bytes()
+    assert not [c for c in addon.mock_calls if str(c[1]).endswith("/snapshot")]
+
+
+async def test_camera_offline_without_frame_answers_200(hass, hass_client, addon, media, bambu_device):
+    mock_addon(addon, OFFLINE)
+    await setup_entry(hass)
+    client = await hass_client()
+    resp = await client.get(f"/api/camera_proxy/{CAMERA}")
+    assert resp.status == 200
+    assert (await resp.read()).startswith(b"\xff\xd8")  # the offline placeholder JPEG
+    assert not [c for c in addon.mock_calls if str(c[1]).endswith("/snapshot")]
 
 
 # ---- AMS re-read and chamber light go through the add-on (ha-bambulab's commands are blocked)

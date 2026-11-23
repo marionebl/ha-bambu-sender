@@ -18,7 +18,7 @@ URL = "http://local-bambu-sender:8098"
 SERIAL = "0000TEST0000001"
 PRINTER = {
     "serial": SERIAL, "name": "H2S", "dev_product_name": "H2S", "dev_model_name": "O1S",
-    "online": True, "print_status": "IDLE", "account": "a1", "email": "me@example.com", "live": True,
+    "online": True, "print_status": "IDLE", "account": "a1", "email": "me@example.com", "live": {"cached": True},
 }
 HEALTH = {"server": "ok", "accounts": []}
 
