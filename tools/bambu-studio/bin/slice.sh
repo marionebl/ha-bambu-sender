@@ -33,5 +33,5 @@ env -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C LD_LIBRARY_PATH="$APP/bin:$ROOT/lib" 
   --outputdir "$W" --export-3mf "$STEM.gcode.3mf" "$IN" >"$W/log" 2>&1 || { tail -20 "$W/log" >&2; exit 3; }
 [ -s "$W/$STEM.gcode.3mf" ] || { tail -20 "$W/log" >&2; echo "FAIL: no .gcode.3mf written" >&2; exit 3; }
 MID=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["model_id"])' "$PROF/BBL/machine/$(J "$W/machine.json" printer_model).json")
-$BS fixup "$W/$STEM.gcode.3mf" "$MID"; mv "$W/$STEM.gcode.3mf" "$OUT/"
+$BS fixup "$W/$STEM.gcode.3mf" "$MID"; $BS preview "$W/$STEM.gcode.3mf"; mv "$W/$STEM.gcode.3mf" "$OUT/"
 echo "$OUT/$STEM.gcode.3mf"
