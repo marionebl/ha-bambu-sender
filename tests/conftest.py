@@ -23,7 +23,7 @@ PRINTER = {
 HEALTH = {"server": "ok", "accounts": []}
 
 
-def make_3mf(model="Bambu Lab H2S", ams=True, claims=True):
+def make_3mf(model="Bambu Lab H2S", ams=True, claims=True, png=None):
     """Tiny .gcode.3mf; ams=False/claims=False make it look like a generic (non-Bambu) start G-code."""
     start = ["M1002 gcode_claim_action : 4"] if claims else []
     start += ["M104 S140"]
@@ -36,6 +36,8 @@ def make_3mf(model="Bambu Lab H2S", ams=True, claims=True):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("Metadata/plate_1.gcode", gcode)
+        if png is not None:
+            z.writestr("Metadata/plate_1.png", png)
     return buf.getvalue()
 
 

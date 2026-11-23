@@ -54,6 +54,11 @@
         "name": "Cloud camera"
       }
     },
+    "image": {
+      "current_print": {
+        "name": "Current print"
+      }
+    },
     "light": {
       "chamber_light": {
         "name": "Chamber light (cloud)"
