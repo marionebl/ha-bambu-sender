@@ -56,8 +56,8 @@ async def test_flow_cannot_connect(hass, aioclient_mock):
 async def test_entities_attach_to_existing_device(hass, addon, media, bambu_device):
     await setup_entry(hass)
     ents = er.async_entries_for_device(er.async_get(hass), bambu_device.id)
-    assert {e.domain for e in ents if e.platform == "bambu_sender"} == {"select", "switch", "button", "sensor", "camera", "light"}
-    assert len([e for e in ents if e.platform == "bambu_sender"]) == 11
+    assert {e.domain for e in ents if e.platform == "bambu_sender"} == {"select", "switch", "button", "sensor", "camera", "light", "image"}
+    assert len([e for e in ents if e.platform == "bambu_sender"]) == 12
     assert {e.device_id for e in ents} == {bambu_device.id}
     devs = list(dr.async_get(hass).devices)
     assert len(devs) == 1 and devs[0].name == "My H2S"  # no second device, no rename
@@ -79,7 +79,7 @@ async def test_select_lists_files_and_new_printer_appears(hass, addon, media, ba
     async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=31))
     await hass.async_block_till_done(wait_background_tasks=True)
     assert "new.gcode.3mf" in hass.states.get(SELECT).attributes["options"]
-    assert len(er.async_entries_for_config_entry(er.async_get(hass), hass.config_entries.async_entries("bambu_sender")[0].entry_id)) == 22
+    assert len(er.async_entries_for_config_entry(er.async_get(hass), hass.config_entries.async_entries("bambu_sender")[0].entry_id)) == 24
 
 
 # ---- button
@@ -492,3 +492,62 @@ async def test_print_with_ams_starts_the_watchdog(hass, addon, media, bambu_devi
         await hass.services.async_call("bambu_sender", "print_file",
             {"serial": SERIAL, "file": "good.gcode.3mf", "use_ams": False}, blocking=True, return_response=True)
     started.assert_called_once_with(SERIAL, "good.gcode.3mf")
+
+
+# ---- current print image
+IMAGE = "image.my_h2s_current_print"
+PNG = b"\x89PNG\r\n\x1a\nfake-plate"
+
+
+async def image_bytes(hass_client, entity_id):
+    client = await hass_client()
+    resp = await client.get(f"/api/image_proxy/{entity_id}")
+    return resp.status, await resp.read()
+
+
+async def test_current_print_shows_plate_preview_of_sent_file(hass, hass_client, addon, media, bambu_device):
+    (media / "bambu_sender" / "plate.gcode.3mf").write_bytes(make_3mf(png=PNG))
+    await setup_entry(hass)
+    assert hass.states.get(IMAGE).state == "unknown"  # nothing sent yet
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    await choose(hass, "plate.gcode.3mf")
+    await press(hass)
+    await hass.async_block_till_done()
+    st = hass.states.get(IMAGE)
+    assert st.state != "unknown" and st.attributes["has_preview"] is True
+    assert await image_bytes(hass_client, IMAGE) == (200, PNG)
+
+
+async def test_current_print_without_preview_in_file(hass, addon, media, bambu_device):
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    await choose(hass, "benchy.gcode.3mf")
+    await press(hass)
+    await hass.async_block_till_done()
+    st = hass.states.get(IMAGE)
+    assert st.state == "unknown" and st.attributes["has_preview"] is False
+    assert st.attributes["file_path"].endswith("benchy.gcode.3mf")
+
+
+async def test_current_print_failed_send_keeps_previous(hass, addon, media, bambu_device):
+    (media / "bambu_sender" / "plate.gcode.3mf").write_bytes(make_3mf(png=PNG))
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", status=500, json={"error": "boom"})
+    await choose(hass, "plate.gcode.3mf")
+    with pytest.raises(HomeAssistantError):
+        await press(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(IMAGE).attributes["file_path"] is None
+
+
+async def test_current_print_survives_restart(hass, hass_client, addon, media, bambu_device):
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    from homeassistant.core import State
+    plate = media / "bambu_sender" / "plate.gcode.3mf"
+    plate.write_bytes(make_3mf(png=PNG))
+    entry = await setup_entry(hass)
+    await hass.config_entries.async_unload(entry.entry_id)
+    mock_restore_cache(hass, [State(IMAGE, "2026-11-23T10:00:00+00:00", {"file_path": str(plate)})])
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await image_bytes(hass_client, IMAGE) == (200, PNG)

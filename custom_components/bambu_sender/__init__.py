@@ -21,7 +21,7 @@ from .upload import UploadView
 from .watchdog import PrintWatchdog
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = ["select", "switch", "button", "sensor", "camera", "light"]
+PLATFORMS = ["select", "switch", "button", "sensor", "camera", "light", "image"]
 
 PRINT_FILE_SCHEMA = vol.All(
     vol.Schema(

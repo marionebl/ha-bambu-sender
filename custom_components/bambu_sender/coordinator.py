@@ -38,6 +38,7 @@ class PrinterState:
     bed_leveling: bool = True
     result: str = "idle"  # idle / sent / error
     last_file: str | None = None
+    last_path: str | None = None  # file of the last successful send
     last_time: str | None = None
     last_error: str | None = None
 
@@ -154,6 +155,7 @@ class SenderCoordinator(DataUpdateCoordinator[SenderData]):
             and isinstance(body, dict)
             and body.get("result") in OK_RESULTS
         ):
+            self.state_for(serial).last_path = path
             self._record(serial, filename, None)
             if use_ams and getattr(self, "watchdog", None):
                 self.watchdog.started(serial, filename)

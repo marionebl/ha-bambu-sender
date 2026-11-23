@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import os
+import re
+import zipfile
 from typing import Any
 
 import aiohttp
@@ -79,3 +81,23 @@ def read_b64(path: str) -> str:
     """Read a file and base64 encode it (blocking)."""
     with open(path, "rb") as fh:
         return base64.b64encode(fh.read()).decode("ascii")
+
+
+_PLATE_GCODE = re.compile(r"Metadata/plate_(\d+)\.gcode")
+
+
+def plate_png(path: str) -> bytes | None:
+    """The slicer's preview of the first sliced plate, or None (blocking)."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+            plates = sorted(int(m.group(1)) for n in names if (m := _PLATE_GCODE.fullmatch(n)))
+            if not plates:
+                return None
+            for name in ("plate_{}.png", "plate_no_light_{}.png", "top_{}.png"):
+                name = "Metadata/" + name.format(plates[0])
+                if name in names:
+                    return z.read(name)
+    except (zipfile.BadZipFile, OSError):
+        pass
+    return None
