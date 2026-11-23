@@ -18,7 +18,7 @@ The camera entity plays a live stream. HA's go2rtc integration serves it, so the
 - The add-on opens one cloud tunnel per printer and shares it between all viewers.
 - H.264 printers are repackaged to MPEG-TS with ffmpeg and no re-encoding. This needs a feed without B-frames.
 - A new viewer starts at the last keyframe. The tunnel stays open for 30 s after the last viewer leaves, so a reopen starts fast.
-- Printers that send JPEG frames are passed through unchanged.
+- Printers that send JPEG frames (P1P, P1S, A1, A1 mini) are passed through unchanged. Their stream source is `ffmpeg:<url>#video=h264`, so go2rtc encodes H.264 for WebRTC.
 - The stream URL is `<add-on>/api/camera/<serial>/live`.
 - Still images come from the last keyframe of the live stream while it runs, because the bridge allows one tunnel per printer. Otherwise each still opens a new tunnel and takes 10 to 60 s.
 - While the add-on has no MQTT status for the printer (printer offline), the camera has no stream and shows a "Printer offline" image. The `online` attribute shows this state, and `frame_time` shows when the last frame was fetched.

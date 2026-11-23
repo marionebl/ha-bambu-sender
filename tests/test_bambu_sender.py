@@ -252,6 +252,14 @@ async def test_camera_can_stream_from_the_addon_live_route(hass, addon, media, b
     assert await cam.stream_source() == f"{URL}/api/camera/{SERIAL}/live"
 
 
+async def test_jpeg_printer_stream_is_encoded_to_h264(hass, addon, media, bambu_device):
+    from homeassistant.components.camera import get_camera_from_entity_id
+    mock_addon(addon, [{**PRINTER, "dev_product_name": "P1S", "dev_model_name": "C12"}])
+    await setup_entry(hass)
+    cam = get_camera_from_entity_id(hass, CAMERA)
+    assert await cam.stream_source() == f"ffmpeg:{URL}/api/camera/{SERIAL}/live#video=h264"
+
+
 async def test_camera_error_is_reported(hass, addon, media, bambu_device):
     from homeassistant.components.camera import async_get_image
     addon.get(f"{URL}/api/camera/{SERIAL}/snapshot", status=502, json={"error": "timeout after 20s"})

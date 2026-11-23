@@ -1,7 +1,7 @@
 {
   "domain": "bambu_sender",
   "name": "Bambu Sender",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "documentation": "https://github.com/marionebl/ha-bambu-sender",
   "config_flow": true,
   "single_config_entry": true,
