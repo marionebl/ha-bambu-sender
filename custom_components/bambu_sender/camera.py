@@ -18,6 +18,7 @@ from .platform_helper import add_per_printer
 
 _LOGGER = logging.getLogger(__name__)
 OFFLINE_JPEG = Path(__file__).with_name("offline.jpg")
+JPEG_PRODUCTS = ("P1", "A1")  # P1P, P1S, A1, A1 mini
 
 
 async def async_setup_entry(hass, entry, async_add_entities) -> None:
@@ -78,7 +79,11 @@ class CloudCamera(SenderEntity, Camera):
         if not self.online:
             return None
         # The add-on shares one cloud tunnel between all viewers, so go2rtc can open this at will.
-        return f"{self.coordinator.url}/api/camera/{self.serial}/live"
+        url = f"{self.coordinator.url}/api/camera/{self.serial}/live"
+        if str(self.printer.get("dev_product_name") or "").startswith(JPEG_PRODUCTS):
+            # These printers send JPEG frames, which WebRTC cannot carry: go2rtc's ffmpeg encodes H.264.
+            return f"ffmpeg:{url}#video=h264"
+        return url
 
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         if not self.online:
