@@ -1,0 +1,27 @@
+#!/bin/bash
+# Installs Flathub's Bambu Studio (native aarch64) and makes an APP dir that slice.sh accepts:
+# APP/bin/bambu-studio runs the binary with the GNOME runtime's own ld.so, so no flatpak/bwrap at run time.
+# usage: flatpak-app.sh <appdir>   (needs flatpak, run as root for --system)
+set -euo pipefail
+OUT=${1:?appdir}
+flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --system -y --noninteractive flathub com.bambulab.BambuStudio
+flatpak info --system com.bambulab.BambuStudio
+A=$(flatpak info --system --show-location com.bambulab.BambuStudio)/files
+RT_REF=$(flatpak info --system --show-runtime com.bambulab.BambuStudio)
+R=$(flatpak info --system --show-location "$RT_REF")/files
+echo "app=$A runtime=$R ($RT_REF)"
+LDSO=$(cd "$R" && ls lib/*/ld-linux-aarch64.so.1 lib/ld-linux-aarch64.so.1 2>/dev/null | head -1)
+[ -n "$LDSO" ] || { echo "FAIL: no ld-linux-aarch64.so.1 in runtime" >&2; exit 2; }
+RES=$(cd "$A" && dirname "$(find . -path '*/profiles/BBL.json' | head -1)" | xargs dirname)
+echo "resources=$A/$RES"
+mkdir -p "$OUT/bin"; rm -rf "$OUT/app" "$OUT/runtime" "$OUT/resources"
+cp -a "$A" "$OUT/app"; cp -a "$R" "$OUT/runtime"; ln -s "app/$RES" "$OUT/resources"
+REAL=$(cd "$OUT/app" && ls bin/bambu-studio bin/BambuStudio 2>/dev/null | head -1)
+cat > "$OUT/bin/bambu-studio" <<W
+#!/bin/sh
+D=\$(cd "\$(dirname "\$0")/.." && pwd)
+exec "\$D/runtime/$LDSO" --library-path "\$D/app/lib:\$D/runtime/lib/aarch64-linux-gnu:\$D/runtime/lib" "\$D/app/$REAL" "\$@"
+W
+chmod 755 "$OUT/bin/bambu-studio"
+du -sh "$OUT/app" "$OUT/runtime"
