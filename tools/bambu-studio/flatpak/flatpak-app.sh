@@ -1,7 +1,7 @@
 #!/bin/bash
 # Installs Flathub's Bambu Studio (native build for this machine's arch) and makes an APP dir that slice.sh accepts:
 # APP/bin/bambu-studio runs the binary with the GNOME runtime's own ld.so, so no flatpak/bwrap at run time.
-# usage: flatpak-app.sh <appdir>   (needs flatpak, run as root for --system)
+# usage: flatpak-app.sh <appdir>   (needs flatpak, run as root for --system; leaves the flatpak install broken)
 set -euo pipefail
 OUT=${1:?appdir}
 flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
@@ -17,8 +17,8 @@ LIBDIR=lib/$(uname -m)-linux-gnu
 RES=$(cd "$A" && dirname "$(find . -path '*/profiles/BBL.json' | head -1)" | xargs dirname)
 echo "resources=$A/$RES"
 mkdir -p "$OUT/bin"; rm -rf "$OUT/app" "$OUT/runtime" "$OUT/resources"
-cp -a "$A" "$OUT/app"; cp -a "$R" "$OUT/runtime"; ln -s "app/$RES" "$OUT/resources"
-ls -la "$OUT/app/bin"
+mv "$A" "$OUT/app"; mv "$R" "$OUT/runtime";  # mv: the files are hardlinks into the ostree repo, a copy doubles the size
+ln -s "app/$RES" "$OUT/resources"
 REAL=$(cd "$OUT/app" && find bin -maxdepth 1 -type f \( -name bambu-studio -o -name BambuStudio \) | head -1 || true)
 [ -n "$REAL" ] || { echo "FAIL: no Bambu Studio binary in app/bin" >&2; exit 2; }
 cat > "$OUT/bin/bambu-studio" <<W

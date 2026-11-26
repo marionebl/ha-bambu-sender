@@ -3,7 +3,7 @@
 FROM debian:trixie-slim AS slicer
 RUN apt-get update && apt-get install -y --no-install-recommends flatpak ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY flatpak-app.sh /
-RUN /flatpak-app.sh /opt/bs
+RUN /flatpak-app.sh /opt/bs && rm -rf /var/lib/flatpak
 
 FROM debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates && rm -rf /var/lib/apt/lists/*
