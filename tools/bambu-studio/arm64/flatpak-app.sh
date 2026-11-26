@@ -11,13 +11,15 @@ A=$(flatpak info --system --show-location com.bambulab.BambuStudio)/files
 RT_REF=$(flatpak info --system --show-runtime com.bambulab.BambuStudio)
 R=$(flatpak info --system --show-location "$RT_REF")/files
 echo "app=$A runtime=$R ($RT_REF)"
-LDSO=$(cd "$R" && ls lib/*/ld-linux-aarch64.so.1 lib/ld-linux-aarch64.so.1 2>/dev/null | head -1)
+LDSO=$(cd "$R" && find lib lib64 -name ld-linux-aarch64.so.1 2>/dev/null | head -1 || true)
 [ -n "$LDSO" ] || { echo "FAIL: no ld-linux-aarch64.so.1 in runtime" >&2; exit 2; }
 RES=$(cd "$A" && dirname "$(find . -path '*/profiles/BBL.json' | head -1)" | xargs dirname)
 echo "resources=$A/$RES"
 mkdir -p "$OUT/bin"; rm -rf "$OUT/app" "$OUT/runtime" "$OUT/resources"
 cp -a "$A" "$OUT/app"; cp -a "$R" "$OUT/runtime"; ln -s "app/$RES" "$OUT/resources"
-REAL=$(cd "$OUT/app" && ls bin/bambu-studio bin/BambuStudio 2>/dev/null | head -1)
+ls -la "$OUT/app/bin"
+REAL=$(cd "$OUT/app" && find bin -maxdepth 1 -type f \( -name bambu-studio -o -name BambuStudio \) | head -1 || true)
+[ -n "$REAL" ] || { echo "FAIL: no Bambu Studio binary in app/bin" >&2; exit 2; }
 cat > "$OUT/bin/bambu-studio" <<W
 #!/bin/sh
 D=\$(cd "\$(dirname "\$0")/.." && pwd)
