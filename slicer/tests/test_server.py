@@ -81,9 +81,11 @@ def test_printers_lists_supported_models_with_loaded_trays(app):
     status, raw = call(base, "GET", "/api/printers")
     data = json.loads(raw)
     assert status == 200
-    assert [p["model"] for p in data["printers"]] == ["H2S"]  # X1C has no profile table
-    assert [t["name"] for t in data["printers"][0]["trays"]] == ["PETG HF", "PLA Matte"]  # empty slot 3 left out
-    assert data["printers"][0]["trays"][0]["colour"] == "#ADB1B2"
+    assert [p["model"] for p in data["printers"]] == ["H2S", "P1S"]  # X1C has no profile table
+    h2s, p1s = data["printers"]
+    assert [t["name"] for t in h2s["trays"]] == ["Bambu PETG HF", "Bambu PLA Matte"]  # from HA's tray sensors
+    assert [t["name"] for t in p1s["trays"]] == ["PETG HF", "PLA Matte"]  # Bambu Sender AMS; empty slot 3 left out
+    assert p1s["trays"][0]["colour"] == "#ADB1B2"
 
 
 def test_upload_slice_preview_print(app):

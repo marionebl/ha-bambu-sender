@@ -81,6 +81,25 @@ def trays(ams):
     return out
 
 
+# ha-bambulab's AMS tray sensors, matched to the printer through the AMS device's via_device.
+# Bambu Sender's MQTT status can lack the AMS (seen for the H2S on 2026-11-26), HA had it.
+TRAYS_TEMPLATE = """{% set ns = namespace(out=[]) %}
+{%- for s in states.sensor | selectattr('attributes.tray_uuid', 'defined') -%}
+{%- set d = device_id(s.entity_id) -%}{%- set p = device_attr(d, 'via_device_id') if d else none -%}
+{%- if p and device_attr(p, 'serial_number') == serial and 'ExternalSpool' not in (device_attr(d, 'name') or '')
+      and not s.attributes.empty and s.attributes.type -%}
+{%- set ns.out = ns.out + [{'ams': '0', 'id': (s.attributes.slot - 1) | string, 'type': s.attributes.type,
+    'idx': s.attributes.filament_id or '', 'name': s.attributes.name or s.attributes.type,
+    'colour': (s.attributes.color or '#C8C8C8')[:7]}] -%}
+{%- endif -%}{%- endfor -%}{{ ns.out | tojson }}"""
+
+
+def ha_trays(serial):
+    status, data = http_json("POST", CORE + "/template", {"template": TRAYS_TEMPLATE, "variables": {"serial": serial}},
+                             {"Authorization": "Bearer " + env("SUPERVISOR_TOKEN", "")}, timeout=10)
+    return sorted(data, key=lambda t: int(t["id"])) if status == 200 and isinstance(data, list) else []
+
+
 def printers():
     status, data = http_json("GET", SENDER + "/api/printers", timeout=10)
     if status != 200 or not isinstance(data, list):
@@ -91,10 +110,13 @@ def printers():
         cfg = PRINTERS.get(model)
         if not cfg:
             continue
-        s, ams = http_json("GET", SENDER + "/api/ams/" + p["serial"], timeout=10)
+        found = ha_trays(p["serial"])
+        if not found:
+            s, ams = http_json("GET", SENDER + "/api/ams/" + p["serial"], timeout=10)
+            found = trays(ams) if s == 200 else []
         out.append({"serial": p["serial"], "name": p.get("name") or p["serial"], "model": model,
                     "bed": cfg["bed"], "qualities": list(cfg["quality"]),
-                    "trays": trays(ams) if s == 200 else [], "online": bool(p.get("live"))})
+                    "trays": found, "online": bool(p.get("live"))})
     return out
 
 
