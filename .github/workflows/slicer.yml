@@ -1,0 +1,18 @@
+name: Slicer app
+on:
+  push:
+    branches: [main, web-slicer]
+    paths: [slicer/**, tools/bambu-studio/**, .github/workflows/slicer.yml]
+  pull_request:
+    paths: [slicer/**, tools/bambu-studio/**, .github/workflows/slicer.yml]
+  workflow_dispatch:
+jobs:
+  app-image:
+    runs-on: ubuntu-24.04-arm  # the Pi's arch
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: API tests (fake slicer)
+        run: pip install -q pytest && python3 -m pytest -q slicer/tests
+      - name: Build the app image and slice the test plate through its API
+        run: slicer/tests/image_test.sh

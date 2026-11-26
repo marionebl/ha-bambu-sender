@@ -4,6 +4,7 @@
   bs.py set <profile.json> <key> <json-value>
   bs.py fixup <file.gcode.3mf> <model_id>   # CLI leaves printer_model_id empty
   bs.py preview <file.gcode.3mf>            # adds Metadata/plate_1.png, which the CLI renders only with Wayland
+  bs.py filament-for <profiles dir> "<printer>" <tray_info_idx> <tray_type>   # AMS tray -> filament profile name
 Merge order is Bambu Studio's PresetBundle: `inherits` parent, then each `include`, then own keys."""
 import json, math, os, re, struct, sys, zipfile, zlib
 import xml.etree.ElementTree as ET
@@ -132,6 +133,35 @@ def preview(path):
         with zipfile.ZipFile(path, "a", zipfile.ZIP_DEFLATED) as z:
             z.writestr("Metadata/plate_1.png", png)
 
+def filament_for(root, printer, idx, ftype):
+    """The system filament profile for an AMS tray: same filament_id, else Generic of the same type."""
+    b = json.load(open(os.path.join(root, "BBL.json")))
+    sub = {e["name"]: e["sub_path"] for e in b["filament_list"]}
+    raw = {}
+    def load(name):
+        if name not in raw:
+            raw[name] = json.load(open(os.path.join(root, "BBL", sub[name]))) if name in sub else {}
+        return raw[name]
+    def field(name, key):  # first value up the inherits chain
+        while name:
+            d = load(name)
+            if key in d:
+                return d[key]
+            name = d.get("inherits")
+    best = {}
+    for name in sub:
+        d = load(name)
+        if d.get("instantiation") != "true" or printer not in (d.get("compatible_printers") or []):
+            continue
+        t = field(name, "filament_type")
+        t = t[0] if isinstance(t, list) else t
+        rank = 0 if idx and field(name, "filament_id") == idx else 1 if name.startswith("Generic ") and t == ftype else None
+        if rank is not None:  # fewest compatible printers = the profile made for this printer
+            best.setdefault((rank, len(d["compatible_printers"]), name), name)
+    if not best:
+        sys.exit("FAIL: no filament profile for %r (%s, %s)" % (printer, idx, ftype))
+    return best[min(best)]
+
 def put(path, key, value):
     d = json.load(open(path))
     d[key] = json.loads(value)
@@ -140,4 +170,4 @@ def put(path, key, value):
 if __name__ == "__main__":
     a = sys.argv[1:]
     {"flatten": lambda: flatten(*a[1:5]), "set": lambda: put(*a[1:4]), "fixup": lambda: fixup(*a[1:3]),
-     "preview": lambda: preview(a[1])}[a[0]]()
+     "preview": lambda: preview(a[1]), "filament-for": lambda: print(filament_for(*a[1:5]))}[a[0]]()
