@@ -30,10 +30,10 @@ jobs:
           done
           t() { local s=$(date +%s); if "$@"; then echo "TIME $(( $(date +%s) - s ))s OK: $*"; else echo "TIME $(( $(date +%s) - s ))s FAIL($?): $*"; rc=1; fi; }
           t tools/bambu-studio/bin/slice.sh tools/slicer/cube20.stl out/cube
-          for m in test_plate_v3.1_geometry test_plate_v3.1; do
-            t env PROCESS="0.20mm Standard @BBL H2S" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/$m.3mf out/h2s-$m "Bambu PETG HF @BBL H2S"
+          for m in test_plate_v3.1.stl test_plate_v3.1_geometry.3mf test_plate_v3.1.3mf; do
+            t env BS_ARGS="--debug 3" PROCESS="0.20mm Standard @BBL H2S" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/$m out/h2s-$m "Bambu PETG HF @BBL H2S"
           done
-          t env PRINTER="Bambu Lab P1S 0.4 nozzle" PROCESS="0.20mm Standard @BBL X1C" BED="Textured PEI Plate" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1_geometry.3mf out/p1s "Bambu PETG HF @BBL X1C"
+          t env PRINTER="Bambu Lab P1S 0.4 nozzle" PROCESS="0.20mm Standard @BBL X1C" BED="Textured PEI Plate" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1.stl out/p1s "Bambu PETG HF @BBL X1C"
           for f in out/*/*.gcode.3mf; do echo "== $f"; unzip -p "$f" Metadata/slice_info.config | grep -E 'prediction|weight|printer_model_id'; unzip -l "$f" | grep -E 'png|gcode$'; done
           exit $rc
       - uses: actions/upload-artifact@v4

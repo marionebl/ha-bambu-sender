@@ -13,7 +13,7 @@ R=$(flatpak info --system --show-location "$RT_REF")/files
 echo "app=$A runtime=$R ($RT_REF)"
 LDSO=$(cd "$R" && find lib lib64 -name 'ld-linux*.so.[0-9]' 2>/dev/null | head -1 || true)
 [ -n "$LDSO" ] || { echo "FAIL: no ld-linux in runtime" >&2; exit 2; }
-LIBDIR=$(dirname "$LDSO")
+LIBDIR=lib/$(uname -m)-linux-gnu
 RES=$(cd "$A" && dirname "$(find . -path '*/profiles/BBL.json' | head -1)" | xargs dirname)
 echo "resources=$A/$RES"
 mkdir -p "$OUT/bin"; rm -rf "$OUT/app" "$OUT/runtime" "$OUT/resources"
