@@ -34,6 +34,15 @@ jobs:
             t env BS_ARGS="--debug 3" PROCESS="0.20mm Standard @BBL H2S" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/$m out/h2s-$m "Bambu PETG HF @BBL H2S"
           done
           t env PRINTER="Bambu Lab P1S 0.4 nozzle" PROCESS="0.20mm Standard @BBL X1C" BED="Textured PEI Plate" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1.stl out/p1s "Bambu PETG HF @BBL X1C"
+          # A 3MF that Bambu Studio itself wrote (with project settings) as input.
+          cp out/cube/cube20.gcode.3mf "$RUNNER_TEMP/cube_project.3mf"
+          t tools/bambu-studio/bin/slice.sh "$RUNNER_TEMP/cube_project.3mf" out/cube-project
+          sudo apt-get install -y -qq gdb >/dev/null
+          M=$(mktemp -d); python3 -I tools/bambu-studio/bin/bs.py flatten "$P" machine "Bambu Lab H2S 0.4 nozzle" $M/m.json
+          python3 -I tools/bambu-studio/bin/bs.py flatten "$P" process "0.20mm Standard @BBL H2S" $M/p.json
+          python3 -I tools/bambu-studio/bin/bs.py flatten "$P" filament "Bambu PETG HF @BBL H2S" $M/f.json
+          L=$(sed -n 's/^exec "\$D\/runtime\/\([^"]*\)".*/\1/p' "$BS_APP/bin/bambu-studio")
+          gdb -q -batch -ex run -ex bt -ex "info sharedlibrary" --args "$BS_APP/runtime/$L" --library-path "$BS_APP/app/lib:$BS_APP/runtime/lib/$(uname -m)-linux-gnu:$BS_APP/runtime/lib" "$BS_APP/app/bin/bambu-studio" --datadir $M/data --allow-newer-file --debug 5 --slice 1 --load-settings "$M/m.json;$M/p.json" --load-filaments "$M/f.json" --outputdir $M --export-3mf x.gcode.3mf tools/bambu-studio/test/test_plate_v3.1_geometry.3mf 2>&1 | grep -v "^\[New Thread\|^\[Thread" | tail -60 || true
           for f in out/*/*.gcode.3mf; do echo "== $f"; unzip -p "$f" Metadata/slice_info.config | grep -E 'prediction|weight|printer_model_id'; unzip -l "$f" | grep -E 'png|gcode$'; done
           exit $rc
       - uses: actions/upload-artifact@v4
@@ -42,3 +51,12 @@ jobs:
           name: slices-${{ matrix.runner }}
           path: out/
           retention-days: 3
+  app-image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: API tests (fake slicer)
+        run: pip install -q pytest && python3 -m pytest -q slicer/tests
+      - name: Build the app image and slice through its API
+        run: slicer/tests/image_test.sh

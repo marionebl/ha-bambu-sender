@@ -1,0 +1,1 @@
+../tools/bambu-studio/bin/slice.sh
