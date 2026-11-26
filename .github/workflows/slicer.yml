@@ -1,18 +1,48 @@
 name: Slicer app
 on:
   push:
-    branches: [main, web-slicer]
+    branches: [main]
     paths: [slicer/**, tools/bambu-studio/**, .github/workflows/slicer.yml]
   pull_request:
     paths: [slicer/**, tools/bambu-studio/**, .github/workflows/slicer.yml]
   workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
 jobs:
-  app-image:
-    runs-on: ubuntu-24.04-arm  # the Pi's arch
+  image:
+    strategy:
+      matrix:
+        include:
+          - {arch: aarch64, runner: ubuntu-24.04-arm}  # the Pi
+          - {arch: amd64, runner: ubuntu-24.04}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: API tests (fake slicer)
         run: pip install -q pytest && python3 -m pytest -q slicer/tests
       - name: Build the app image and slice the test plate through its API
-        run: slicer/tests/image_test.sh
+        run: |
+          V=$(sed -n 's/^version: "\(.*\)"/\1/p' slicer/config.yaml)
+          BUILD_ARGS="--label io.hass.version=$V --label io.hass.arch=${{ matrix.arch }}" slicer/tests/image_test.sh
+      - name: Version must change with the app
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch -q --depth 1 origin "$GITHUB_BASE_REF"
+          old=$(git show FETCH_HEAD:slicer/config.yaml 2>/dev/null | sed -n 's/^version: //p')
+          new=$(sed -n 's/^version: //p' slicer/config.yaml)
+          if ! git diff --quiet FETCH_HEAD -- slicer tools/bambu-studio && [ "$old" = "$new" ]; then
+            echo "::error::The app changed but its version ($new) did not; HA would not offer the update"; exit 1
+          fi
+      - name: Push to ghcr.io
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(sed -n 's/^version: "\(.*\)"/\1/p' slicer/config.yaml)
+          IMG=ghcr.io/${{ github.repository_owner }}/ha-bambu-slicer-${{ matrix.arch }}
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag bambu-slicer-test "$IMG:$V"
+          docker push -q "$IMG:$V"
+          echo "pushed $IMG:$V"

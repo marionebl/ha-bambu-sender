@@ -11,4 +11,5 @@ COPY --from=slicer /opt/bs /opt/bs
 COPY slice.sh bs.py /opt/bs/bin/
 COPY server.py index.html /srv/
 ENV BS_APP=/opt/bs SLICER_SLICE_CMD=/opt/bs/bin/slice.sh SLICER_BS=/opt/bs/bin/bs.py SLICER_PROFILES=/opt/bs/resources/profiles
+LABEL io.hass.type="addon" io.hass.name="Bambu Slicer" org.opencontainers.image.source="https://github.com/marionebl/ha-bambu-sender"
 CMD ["python3", "-I", "/srv/server.py"]

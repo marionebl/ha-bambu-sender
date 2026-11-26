@@ -3,7 +3,7 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); REPO=$(cd "$HERE/../.." && pwd)
 CTX=$(mktemp -d); "$REPO/slicer/install.sh" "$CTX/app" >/dev/null
-docker build -q -t bambu-slicer-test "$CTX/app" >/dev/null
+docker build -q ${BUILD_ARGS:-} -t bambu-slicer-test "$CTX/app" >/dev/null
 docker image ls bambu-slicer-test --format 'image size {{.Size}}'
 python3 "$HERE/mocks.py" 18801 & MOCK=$!
 docker run -d --rm --name bambu-slicer-test --network host -e SLICER_PORT=18802 \

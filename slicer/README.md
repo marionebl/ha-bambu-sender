@@ -19,14 +19,14 @@ Bambu Studio comes from Flathub (`com.bambulab.BambuStudio`), the only ready-mad
 
 The filament profile comes from the tray's `tray_info_idx` (`bs.py filament-for`), else the Generic profile of the tray's type.
 
-## Install on the Pi
+## Install and updates
 
-In the Web Terminal:
+GitHub Actions builds the image on each push to `main` and pushes `ghcr.io/marionebl/ha-bambu-slicer-<arch>:<version>`. Home Assistant pulls that image, so the Pi builds nothing.
 
-    curl -fsSL https://github.com/marionebl/ha-bambu-sender/archive/refs/heads/<branch>.tar.gz | tar -xz -C /tmp
-    /tmp/ha-bambu-sender-<branch>/slicer/install.sh
+1. Once: Settings > Apps > App store > ⋮ > Repositories, add `https://github.com/marionebl/ha-bambu-sender`. Install "Bambu Slicer" and turn on auto update.
+2. For each change: raise `version` in `config.yaml`. The pull request check fails if the app changed and the version did not. After the merge, HA offers (or installs) the update.
 
-Then Settings > Apps > App store > ⋮ > Check for updates, and install "Bambu Slicer". Sliced files go to `/share/bambu_slicer/`. Jobs (the last 10) stay in the app's `/data/jobs/`.
+Sliced files go to `/share/bambu_slicer/`. Jobs (the last 10) stay in the app's `/data/jobs/`.
 
 ## Tests
 
