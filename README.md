@@ -67,7 +67,7 @@ pytest tests
 The bridge binary is not in git. To build it on the Pi:
 
 1. Copy `builder/` to `/addons/bambu_bridge_builder`. Install the "Bambu Bridge Builder" app and start it.
-   It clones boo-cloud v0.2.2, applies `builder/bridge.patch.xz` (camera, command route, device-cert retry),
+   It clones boo-cloud v0.2.2, applies `builder/bridge.patch.xz` (camera, command route, device-cert retry, 64 MB print upload limit),
    cross-compiles for x86_64 (about 20 minutes on a Pi 4) and copies the binary to `/share/bambu_build/boocloud-bridge`.
 2. Copy that file to `/addons/bambu_sender/boocloud-bridge-camera`, raise the version in `addon/config.yaml`,
    and update the app.
