@@ -1,11 +1,15 @@
-name: Bambu Studio on arm64
+name: Bambu Studio from Flathub
 on:
   push:
-    branches: [slicer-arm64-spike]
+    branches: [slicer-arm64-spike, web-slicer]
   workflow_dispatch:
 jobs:
   slice:
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -14,21 +18,27 @@ jobs:
       - name: Install Flathub Bambu Studio
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq flatpak >/dev/null
-          sudo tools/bambu-studio/arm64/flatpak-app.sh "$RUNNER_TEMP/bs"
-      - name: Slice cube (H2S) and test plate (H2S Better, P1S Better)
+          sudo tools/bambu-studio/flatpak/flatpak-app.sh "$RUNNER_TEMP/bs"
+      - name: Slice
         env:
           BS_APP: ${{ runner.temp }}/bs
         run: |
-          set -x
-          ldd_out=$("$BS_APP/bin/bambu-studio" --help 2>&1 | head -5) || true; echo "$ldd_out"
-          t() { local s=$(date +%s); "$@"; echo "TIME $(( $(date +%s) - s ))s: $*"; }
+          P=$BS_APP/resources/profiles; rc=0
+          for args in "Bambu Lab H2S 0.4 nozzle|GFG02|PETG" "Bambu Lab P1S 0.4 nozzle|GFG02|PETG" "Bambu Lab P1S 0.4 nozzle|GFSNL08|PETG" "Bambu Lab H2S 0.4 nozzle||PLA"; do
+            IFS='|' read -r pr idx ty <<< "$args"
+            echo "filament-for $args -> $(python3 -I tools/bambu-studio/bin/bs.py filament-for "$P" "$pr" "$idx" "$ty")" || rc=1
+          done
+          t() { local s=$(date +%s); if "$@"; then echo "TIME $(( $(date +%s) - s ))s OK: $*"; else echo "TIME $(( $(date +%s) - s ))s FAIL($?): $*"; rc=1; fi; }
           t tools/bambu-studio/bin/slice.sh tools/slicer/cube20.stl out/cube
-          t env PROCESS="0.20mm Standard @BBL H2S" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1.3mf out/h2s "Bambu PETG HF @BBL H2S"
-          t env PRINTER="Bambu Lab P1S 0.4 nozzle" PROCESS="0.20mm Standard @BBL X1C" BED="Textured PEI Plate" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1.3mf out/p1s "Bambu PETG HF @BBL P1S 0.4 nozzle"
-          for f in out/*/*.gcode.3mf; do echo "== $f"; unzip -p "$f" Metadata/slice_info.config | grep -E 'prediction|weight|printer_model_id'; done
+          for m in test_plate_v3.1_geometry test_plate_v3.1; do
+            t env PROCESS="0.20mm Standard @BBL H2S" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/$m.3mf out/h2s-$m "Bambu PETG HF @BBL H2S"
+          done
+          t env PRINTER="Bambu Lab P1S 0.4 nozzle" PROCESS="0.20mm Standard @BBL X1C" BED="Textured PEI Plate" tools/bambu-studio/bin/slice.sh tools/bambu-studio/test/test_plate_v3.1_geometry.3mf out/p1s "Bambu PETG HF @BBL X1C"
+          for f in out/*/*.gcode.3mf; do echo "== $f"; unzip -p "$f" Metadata/slice_info.config | grep -E 'prediction|weight|printer_model_id'; unzip -l "$f" | grep -E 'png|gcode$'; done
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: slices
+          name: slices-${{ matrix.runner }}
           path: out/
           retention-days: 3
