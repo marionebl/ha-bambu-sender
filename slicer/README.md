@@ -1,3 +1,5 @@
+> Deprecated: replaced by the Bambu Hub app in `../hub`. Kept because the hub image is built from this source.
+
 # Bambu Slicer app
 
 A Home Assistant app with a sidebar panel "Slicer". It slices a model with Bambu Studio on the Home Assistant machine and sends the result to a printer.

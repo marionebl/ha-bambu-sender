@@ -1,3 +1,5 @@
+> Deprecated: replaced by the Bambu Hub app in `../hub`. Kept because the hub image is built from this source.
+
 # Bambu Sender add-on
 
 This Home Assistant add-on lets other programs (Claude, through Home Assistant) read a Bambu Lab printer and its AMS filaments and start a cloud print.
