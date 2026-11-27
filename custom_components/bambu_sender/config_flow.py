@@ -10,10 +10,12 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResu
 from homeassistant.core import callback
 from homeassistant.helpers.selector import ObjectSelector, TextSelector, TextSelectorConfig, TextSelectorType
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.service_info.hassio import HassioServiceInfo
 
 from . import hub_api
 from .api import async_get_json
 from .const import (
+    BRIDGE_PORT,
     CONF_HUB_SECRET,
     CONF_HUB_URL,
     CONF_RECIPIENTS,
@@ -21,6 +23,7 @@ from .const import (
     CONF_URL,
     DEFAULT_HUB_URL,
     DOMAIN,
+    HUB_PORT,
     MIN_SECRET_LENGTH,
 )
 
@@ -67,6 +70,28 @@ class BambuSenderConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+    async def async_step_hassio(self, discovery_info: HassioServiceInfo) -> ConfigFlowResult:
+        """The Hub app announces host, ports and secret through Supervisor discovery."""
+        cfg = discovery_info.config
+        host = cfg["host"]
+        self._discovered = {
+            CONF_URL: f"http://{host}:{cfg.get('bridge_port', BRIDGE_PORT)}",
+            CONF_HUB_URL: f"http://{host}:{cfg.get('hub_port', HUB_PORT)}",
+            CONF_HUB_SECRET: cfg.get("secret", ""),
+        }
+        await self.async_set_unique_id(DOMAIN)
+        # An existing entry takes the new url/secret; its update listener reloads it.
+        self._abort_if_unique_id_configured(updates=self._discovered, reload_on_update=False)
+        return await self.async_step_hassio_confirm()
+
+    async def async_step_hassio_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="Bambu Sender", data=self._discovered)
+        return self.async_show_form(step_id="hassio_confirm")
+
+
 class BambuSenderOptionsFlow(OptionsFlow):
     """Upload secret, bridge/hub URLs, hub secret and notification recipients."""
 
@@ -84,10 +109,7 @@ class BambuSenderOptionsFlow(OptionsFlow):
             hub_secret = (user_input.get(CONF_HUB_SECRET) or data.get(CONF_HUB_SECRET) or "").strip()
             session = async_get_clientsession(self.hass)
             hub_url = hub_api.hub_url_for(data)
-            if not hub_secret:
-                # No secret typed: ask the hub (works when it allows internal access).
-                hub_secret = await hub_api.read_integration_secret(session, hub_url) or ""
-            elif not await self._hub_accepts(session, hub_url, hub_secret):
+            if hub_secret and not await self._hub_accepts(session, hub_url, hub_secret):
                 errors[CONF_HUB_SECRET] = "invalid_hub_secret"
             if secret and len(secret) < MIN_SECRET_LENGTH:
                 errors[CONF_UPLOAD_SECRET] = "secret_too_short"

@@ -7,6 +7,10 @@
         "data": {
           "url": "Add-on URL"
         }
+      },
+      "hassio_confirm": {
+        "title": "Bambu Hub app",
+        "description": "Set up Bambu Sender with the Bambu Hub app that Home Assistant found?"
       }
     },
     "error": {
@@ -110,7 +114,7 @@
     "step": {
       "init": {
         "title": "Bambu Sender and Bambu Hub",
-        "description": "Upload secret: agents upload sliced files with PUT /api/bambu_sender/upload/<name>.gcode.3mf and the header X-Bambu-Sender-Secret (empty turns uploads off). Hub secret: leave empty to read it from the hub. Recipients: YAML map of person entity to notify service, e.g. person.anna: notify.mobile_app_anna; they are notified only while at home.",
+        "description": "Upload secret: agents upload sliced files with PUT /api/bambu_sender/upload/<name>.gcode.3mf and the header X-Bambu-Sender-Secret (empty turns uploads off). Hub secret: normally set by app discovery; paste it here otherwise (empty keeps the current one). Recipients: YAML map of person entity to notify service, e.g. person.anna: notify.mobile_app_anna; they are notified only while at home.",
         "data": {
           "upload_secret": "Upload secret (at least 24 characters)",
           "url": "Bridge URL (manual override)",

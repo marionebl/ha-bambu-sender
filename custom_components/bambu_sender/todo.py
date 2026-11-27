@@ -65,10 +65,10 @@ class QueueTodo(SenderEntity, TodoListEntity):
         await self.hub.async_request_refresh()
 
     async def async_move_todo_item(self, uid: str, previous_uid: str | None) -> None:
-        # reorder's position is 0-based among all waiting jobs, so compute it globally.
-        waiting = [j["id"] for j in self.hub.data.jobs if j.get("state") in WAITING and j["id"] != uid]
+        # position is 0-based among this printer's waiting jobs; scope names the printer.
+        waiting = [j["id"] for j in self._mine() if j["id"] != uid]
         pos = 0 if previous_uid is None else waiting.index(previous_uid) + 1 if previous_uid in waiting else len(waiting)
-        await self._call(f"/api/queue/{uid}/reorder", {"position": pos})
+        await self._call(f"/api/queue/{uid}/reorder", {"position": pos, "scope": self.serial})
         await self.hub.async_request_refresh()
 
     async def _call(self, path: str, body: dict) -> None:

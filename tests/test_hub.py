@@ -20,8 +20,8 @@ def job(jid, state="queued", target=SERIAL, owner="Anna", file="cube.gcode.3mf")
 
 
 def mock_hub(mock, jobs=None, events=None, seq=1, grants=None, users=None):
-    # The first matching mock wins, so drop the earlier hub mocks (the integration one stays).
-    mock._mocks = [m for m in mock._mocks if not (str(m.url).startswith(HUB_URL) and "integration" not in str(m.url))]
+    # The first matching mock wins, so drop the earlier hub mocks .
+    mock._mocks = [m for m in mock._mocks if not (str(m.url).startswith(HUB_URL) and True)]
     mock.get(f"{HUB_URL}/api/events", json={"seq": seq, "events": events or []})
     mock.get(f"{HUB_URL}/api/queue", json={"jobs": jobs or [], "history": [], "printers": []})
     mock.get(f"{HUB_URL}/api/grants", json=grants if grants is not None else [])
@@ -110,17 +110,6 @@ async def test_migration_keeps_custom_url(hass, addon, media, bambu_device):
 
 
 # ---- options flow: hub secret
-async def test_options_reads_secret_from_hub(hass, addon, media, bambu_device):
-    mock_addon(addon, integration=False)
-    addon.get(f"{HUB_URL}/api/integration", json={"url": HUB_URL, "secret": HUB_SECRET})
-    mock_hub(addon)
-    entry = MockConfigEntry(domain="bambu_sender", version=2, unique_id="bambu_sender", data={"url": URL})
-    entry.add_to_hass(hass)
-    flow = await hass.config_entries.options.async_init(entry.entry_id)
-    done = await hass.config_entries.options.async_configure(flow["flow_id"], {})
-    assert done["type"] == "create_entry" and entry.data["hub_secret"] == HUB_SECRET
-
-
 async def test_options_manual_secret_rejected_then_accepted(hass, addon, media, bambu_device):
     entry = MockConfigEntry(domain="bambu_sender", version=2, unique_id="bambu_sender", data={"url": URL})
     entry.add_to_hass(hass)
@@ -166,9 +155,9 @@ async def test_todo_move_calls_reorder(hass, addon, media, bambu_device):
     await hub_setup(hass, mock=addon, jobs=jobs)
     ent = hass.data["entity_components"]["todo"].get_entity(TODO)
     await ent.async_move_todo_item("aaaaaaaaaaaa", "bbbbbbbbbbbb")
-    assert calls(addon, "POST", "/reorder")[0][2] == {"position": 1}
+    assert calls(addon, "POST", "/reorder")[0][2] == {"position": 1, "scope": SERIAL}
     await ent.async_move_todo_item("aaaaaaaaaaaa", None)
-    assert calls(addon, "POST", "/reorder")[1][2] == {"position": 0}
+    assert calls(addon, "POST", "/reorder")[1][2] == {"position": 0, "scope": SERIAL}
 
 
 async def test_todo_has_no_create(hass, addon, media, bambu_device):
@@ -270,3 +259,38 @@ async def test_hub_down_does_not_break_printer_entities(hass, addon, media, bamb
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get("select.my_h2s_print_file").state != "unavailable"
+
+
+# ---- Supervisor discovery
+def hassio_info(host=HUBHOST, secret=HUB_SECRET):
+    from homeassistant.helpers.service_info.hassio import HassioServiceInfo
+    cfg = {"host": host, "bridge_port": 8098, "hub_port": 8099, "secret": secret}
+    return HassioServiceInfo(config=cfg, name="Bambu Hub", slug="0990873a_bambu_hub", uuid="abc")
+
+
+async def test_discovery_creates_entry(hass, addon):
+    r = await hass.config_entries.flow.async_init("bambu_sender", context={"source": "hassio"}, data=hassio_info())
+    assert r["type"] == "form" and r["step_id"] == "hassio_confirm"
+    r = await hass.config_entries.flow.async_configure(r["flow_id"], {})
+    assert r["type"] == "create_entry"
+    assert r["data"] == {"url": f"http://{HUBHOST}:8098", "hub_url": f"http://{HUBHOST}:8099", "hub_secret": HUB_SECRET}
+
+
+async def test_discovery_updates_existing_entry_and_keeps_entity_ids(hass, addon, media, bambu_device):
+    from .conftest import setup_entry
+    entry = await setup_entry(hass)
+    reg = er.async_get(hass)
+    ids = {e.unique_id: e.entity_id for e in er.async_entries_for_config_entry(reg, entry.entry_id)}
+    new = f"http://{HUBHOST}:8098"
+    addon.get(f"{new}/api/health", json={"server": "ok"})
+    addon.get(f"{new}/api/printers", json=[PRINTER])
+    hub = f"http://{HUBHOST}:8099"
+    for path, body in (("/api/events", {"seq": 1, "events": []}), ("/api/queue", {"jobs": []})):
+        addon.get(hub + path, json=body)
+    r = await hass.config_entries.flow.async_init("bambu_sender", context={"source": "hassio"}, data=hassio_info(secret="n" * 32))
+    assert r["type"] == "abort" and r["reason"] == "already_configured"
+    await hass.async_block_till_done()
+    assert entry.data == {"url": new, "hub_url": hub, "hub_secret": "n" * 32}
+    assert entry.runtime_data.url == new and entry.runtime_data.hub.secret == "n" * 32  # reloaded
+    after = {e.unique_id: e.entity_id for e in er.async_entries_for_config_entry(reg, entry.entry_id) if e.unique_id in ids}
+    assert after == ids and ids

@@ -64,12 +64,10 @@ def media(hass, tmp_path):
     return tmp_path
 
 
-def mock_addon(mock, printers=None, integration=True):
+def mock_addon(mock, printers=None):
     mock.clear_requests()
     mock.get(f"{URL}/api/health", json=HEALTH)
     mock.get(f"{URL}/api/printers", json=[PRINTER] if printers is None else printers)
-    if integration:
-        mock.get(HUB_URL + "/api/integration", status=404)  # no hub: options flow finds no secret
 
 
 @pytest.fixture

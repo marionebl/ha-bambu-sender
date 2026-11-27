@@ -47,16 +47,6 @@ async def hub_request(
         return await resp.json(content_type=None)
 
 
-async def read_integration_secret(session: aiohttp.ClientSession, url: str) -> str | None:
-    """Ask GET /api/integration for the secret; None when the hub does not hand it out."""
-    try:
-        doc = await hub_request(session, url, None, "GET", "/api/integration")
-    except (aiohttp.ClientError, TimeoutError, ValueError):
-        return None
-    secret = doc.get("secret") if isinstance(doc, dict) else None
-    return secret if isinstance(secret, str) and secret else None
-
-
 async def _supervisor(session: aiohttp.ClientSession, path: str) -> Any:
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not token:
