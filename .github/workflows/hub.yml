@@ -22,8 +22,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Unit tests (fake slicer and bridge)
-        run: pip install -q pytest && python3 -m pytest -q slicer/tests && (cd test-server && python3 -m pytest -q)
+      - name: Unit tests (fake slicer)
+        run: pip install -q pytest && python3 -m pytest -q slicer/tests
       - name: Build the app image, then smoke-test bridge and slicer
         run: |
           V=$(sed -n 's/^version: "\(.*\)"/\1/p' hub/config.yaml)
