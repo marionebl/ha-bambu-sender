@@ -102,3 +102,12 @@ def test_failed_print_keeps_the_spool(hub):
     hub.ha.s["sensor.lab_h2s_print_status"]["state"] = "failed"
     hub.app.tick_all()
     assert hub.app.spools.get(spool["id"])["grams_left"] == 500
+
+
+def test_spool_without_price_is_allowed_and_costs_nothing(hub):
+    hub.setup_printers()
+    sp = hub.req("POST", "/api/spools", {"type": "PLA", "price_per_kg": None}, user=ADMIN)
+    assert sp[0] == 200 and sp[1]["price_per_kg"] is None
+    assert hub.req("PUT", "/api/spools/" + sp[1]["id"], {"price_per_kg": 12.5}, user=ADMIN)[1]["price_per_kg"] == 12.5
+    assert hub.req("PUT", "/api/spools/" + sp[1]["id"], {"price_per_kg": None, "printer": None, "unit": None, "slot": None}, user=ADMIN)[0] == 200
+    assert hub.req("PUT", "/api/spools/" + sp[1]["id"], {"price_per_kg": "x"}, user=ADMIN)[0] == 400

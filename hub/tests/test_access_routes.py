@@ -69,3 +69,12 @@ def test_me_works_while_ha_is_unreachable(hub):
     hub.ha.command = down
     st, me = hub.req("GET", "/api/me", user=ADMIN)
     assert st == 200 and me["is_admin"] is False  # unknown users never get admin rights
+
+
+def test_grants_carry_user_name_and_active(hub):
+    hub.setup_printers()
+    hub.ha.s["schedule.workday"]["state"] = "off"
+    g = hub.req("POST", "/api/grants", {"user_id": USER, "printer": SERIAL, "condition_entity": "schedule.workday"}, user=ADMIN)[1]
+    assert (g["user_name"], g["active"]) == ("Ben", False)
+    hub.ha.s["schedule.workday"]["state"] = "on"
+    assert hub.req("GET", "/api/grants", user=ADMIN)[1][0]["active"] is True

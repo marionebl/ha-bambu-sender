@@ -31,7 +31,9 @@ health() {  # $1 label, $2 url
 }
 health "bridge port" $BRIDGE/api/health
 health "via ingress" $B/api/bridge/api/health
-curl -fsS $B/ | grep -q 'href="api/bridge/"'
+# The web UI loads without identity (the API behind it does not). Captured first: grep -q would break curl's pipe.
+page=$(curl -fsS $B/); grep -q '<title>Bambu Hub</title>' <<<"$page"
+js=$(curl -fsS $B/api.js); grep -q "api/me" <<<"$js"; curl -fsS -o /dev/null $B/views/queue.js; echo "web UI served at /"
 curl -fsS "${ID[@]}" $B/api/bridge/ | grep -q 'Bambu Sender'
 J=$(curl -fsS "${ID[@]}" -X POST --data-binary @"$REPO/tools/bambu-studio/test/test_plate_v3.1.stl" "$B/api/jobs?name=test_plate_v3.1.stl" | python3 -c 'import json,sys;print(json.load(sys.stdin)["id"])')
 curl -fsS "${ID[@]}" -X POST -d '{"serial":"H2S0001","quality":"better","tray":"0:0"}' $B/api/jobs/$J/slice >/dev/null

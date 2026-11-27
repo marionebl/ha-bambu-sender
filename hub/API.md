@@ -5,7 +5,7 @@ Paths are relative to the ingress root. All bodies are JSON. Errors: `{"error": 
 
 Identity comes from the Supervisor ingress headers `X-Remote-User-Id`, `X-Remote-User-Name`, `X-Remote-User-Display-Name`.
 Calls from the integration go to `http://<app hostname>:8099` without ingress and carry `X-Hub-Secret`; they are internal (admin everywhere).
-The app only trusts the identity headers from the Supervisor ingress gateway (172.30.32.2, env `HUB_INGRESS_IPS`); every route except `GET /` answers 401 without an identity or the secret.
+The app only trusts the identity headers from the Supervisor ingress gateway (172.30.32.2, env `HUB_INGRESS_IPS`); every route except the web UI's own files (`GET /`, `/index.html`, `/style.css`, `/app.js`, `/api.js`, `/util.js`, `/views/*.js`, served from hub/ui) answers 401 without an identity or the secret.
 The secret reaches the integration through Supervisor discovery: on start the app POSTs `{service: "bambu_sender", config: {host: <own hostname>, bridge_port: 8098, hub_port: 8099, secret}}` to `http://supervisor/discovery` (retried every 30 s until it works). `GET /api/integration` shows the same data to HA admins as the fallback.
 
 ## Me
@@ -60,13 +60,13 @@ The secret reaches the integration through Supervisor discovery: on start the ap
 ## Filament and cost
 
 - `GET /api/spools` (spools on printers the caller has a grant on; unassigned spools only for HA admins) → `[{id, brand, type, colour, name, grams_left, grams_total, price_per_kg, printer?, unit?, slot?}]`
-- `POST /api/spools`, `PUT /api/spools/{id}`, `DELETE /api/spools/{id}` (admin of the spool's printer, or HA admin; unassigned spools: HA admins). An assigned spool needs `unit` and `slot`.
+- `POST /api/spools`, `PUT /api/spools/{id}`, `DELETE /api/spools/{id}` (admin of the spool's printer, or HA admin; unassigned spools: HA admins). An assigned spool needs `unit` and `slot`. A `PUT` may unlink a spool (`printer: null`).
 - A job's `grams` comes from the sliced 3MF (`Metadata/slice_info.config` filament used_g per filament). On `done` (exactly once) the grams are taken off the spool in the tray the slice was made for, else a spool of the same type and colour on that printer; never below 0.
-  `cost` = sum(grams × price_per_kg / 1000) + (print hours × printer watt estimate / 1000 × electricity_kwh_price), rounded to cents. `print hours` is the slice's estimate. Watt estimate per model in code (H2S, X1, P1S, P1P, A1, A1 mini). A filament without a matching spool costs 0. The queue copy of the 3MF is deleted when the job is done.
+  `cost` = sum(grams × price_per_kg / 1000) + (print hours × printer watt estimate / 1000 × electricity_kwh_price), rounded to cents. `print hours` is the slice's estimate. Watt estimate per model in code (H2S, X1, P1S, P1P, A1, A1 mini). A filament without a matching spool, or whose spool has `price_per_kg: null` ("no price", allowed), costs 0. The queue copy of the 3MF is deleted when the job is done.
 
 ## Access
 
-- `GET/POST /api/grants`, `DELETE /api/grants/{id}` (HA admins; GET also internal). Grant: `{id, user_id, user_name, printer: serial|"*", role: "owner"|"user", until?, condition_entity?, needs_approval?, active}`.
+- `GET/POST /api/grants`, `DELETE /api/grants/{id}` (HA admins; GET also internal). Answers carry `user_name` (HA user name) and `active` (until/condition evaluated now). Grant: `{id, user_id, user_name, printer: serial|"*", role: "owner"|"user", until?, condition_entity?, needs_approval?, active}`.
 - `GET /api/ha/users` → `[{id, name, is_admin}]` (HA admins and internal), from HA `config/auth/list`; system and inactive users are left out.
 - `GET /api/ha/entities?domains=schedule,input_boolean,binary_sensor,person` → `[{entity_id, name, state}]` (HA admins), for the condition picker.
 

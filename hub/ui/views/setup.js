@@ -45,14 +45,14 @@ export async function mount(ctx, root) {
 
   // Step 2
   function printerForm(p) {
-    const saved = p.configured;
+    const saved = p.configured, c = p.config || {};
     const f = {
-      name: h('input', { type: 'text', value: p.name || p.bambu_name || '' }),
-      prefix: h('input', { type: 'text', value: p.ha_prefix || p.suggested_prefix || '', placeholder: 'e.g. x1c_00m00a000000000' }),
-      plate: h('select', null, PLATES.map((x) => h('option', { selected: x === (p.plate || PLATES[0]) }, x))),
-      nozzle: h('select', null, NOZZLES.map((x) => h('option', { selected: x === String(p.nozzle || '0.4') }, x))),
-      pause: h('input', { type: 'text', value: (p.pause_entities || []).join(', '), placeholder: 'switch.printer_power, input_boolean.pause_printing' }),
-      price: h('input', { type: 'number', step: '0.01', min: 0, value: p.electricity_kwh_price ?? '' }),
+      name: h('input', { type: 'text', value: c.name || p.bambu_name || '' }),
+      prefix: h('input', { type: 'text', value: c.ha_prefix || p.suggested_prefix || '', placeholder: 'e.g. x1c_00m00a000000000' }),
+      plate: h('select', null, PLATES.map((x) => h('option', { selected: x === (c.plate || PLATES[0]) }, x))),
+      nozzle: h('select', null, NOZZLES.map((x) => h('option', { selected: x === String(c.nozzle || '0.4') }, x))),
+      pause: h('input', { type: 'text', value: (c.pause_entities || []).join(', '), placeholder: 'switch.printer_power, input_boolean.pause_printing' }),
+      price: h('input', { type: 'number', step: '0.01', min: 0, value: c.electricity_kwh_price || '' }),
     };
     return h('section', { class: 'card' }, h('div', { class: 'row between' }, h('div', null, h('h2', { style: 'margin:0' }, p.bambu_name), h('small', null, `${p.model} · ${p.serial.slice(0, 4)}…${p.serial.slice(-3)}`)),
       pill(saved ? 'Configured' : 'New', saved ? 'ok' : 'warn')),

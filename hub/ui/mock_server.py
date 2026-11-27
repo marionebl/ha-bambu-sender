@@ -110,7 +110,7 @@ ENTITIES = [
 ]
 SETUP = {"accounts": [{"id": "acc1", "email": "owner@example.invalid", "logged_in": True, "daemon_running": True}],
          "printers": {s: {"serial": s, "bambu_name": PRINTERS[s]["name"], "model": PRINTERS[s]["model"], "account": "acc1",
-                          "configured": s != X1C, "suggested_prefix": {H2S: "h2s_fake0001", P1S: "p1s_fake0002"}.get(s)} for s in PRINTERS}}
+                          "configured": s != X1C, "config": None, "suggested_prefix": {H2S: "h2s_fake0001", P1S: "p1s_fake0002"}.get(s)} for s in PRINTERS}}
 SLICES = {}
 LOCK = threading.Lock()
 QUALITY = {"good": (7800, 41.0, "0.24mm Draft"), "better": (10500, 42.5, "0.20mm Standard"), "best": (14700, 44.1, "0.16mm High Quality")}
@@ -227,7 +227,8 @@ def job_action(ident, jid, action, body):
         pos = body.get("position")
         if not isinstance(pos, int):
             raise Err(400, "position must be an integer")
-        slots = [i for i, x in enumerate(JOBS) if x["state"] in WAITING and (admin or x["owner_user_id"] == uid)]
+        slots = [i for i, x in enumerate(JOBS) if x["state"] in WAITING and (admin or x["owner_user_id"] == uid)
+                 and (not body.get("scope") or body["scope"] in (x["target"], x.get("printer")))]
         pool = [JOBS[i] for i in slots]
         if j not in pool:
             raise Err(409, "job is not in this reorder scope")
@@ -464,7 +465,7 @@ class H(BaseHTTPRequestHandler):
         if r and r.group(1) in SETUP["printers"]:
             p = SETUP["printers"][r.group(1)]
             if m == "PUT":
-                p["configured"] = True; p.update(J())
+                p["configured"] = True; p["config"] = J()
             else:
                 p["configured"] = False
             return ok(p)

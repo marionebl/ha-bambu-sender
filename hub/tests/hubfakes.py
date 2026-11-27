@@ -146,7 +146,8 @@ class Hub:
         threading.Thread(target=self.bridge.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
         from app import App
         self.app = App(self.ha, str(tmp_path / "data"), self.s.SHARE, ("127.0.0.1", self.bridge.server_address[1]), self.s,
-                       lambda: "hub-host", 8099, clock=lambda: self.now, trusted_ips=["127.0.0.1"])
+                       lambda: "hub-host", 8099, clock=lambda: self.now, trusted_ips=["127.0.0.1"],
+                       ui_dir=os.path.join(REPO, "hub", "ui"))
         self.app.install()
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.s.Handler)
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()

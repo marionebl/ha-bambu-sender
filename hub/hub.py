@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Hub app on the ingress port: the slicer server with the hub API (app.py) mounted on it.
 
-HA ingress reaches one port only. The bridge keeps its own unchanged routes on 8098 for the integration; its page and
-API stay reachable for HA admins under /api/bridge/.
+HA ingress reaches one port only. It serves the web UI (hub/ui) at / and the API (app.py). The bridge keeps its own
+unchanged routes on 8098 for the integration and stays reachable for HA admins under /api/bridge/.
 """
 import json
 import os
@@ -18,7 +18,6 @@ from ha import HA
 env = os.environ.get
 BRIDGE = ("127.0.0.1", int(env("BAMBU_PORT", "8098")))
 SUPERVISOR = env("HUB_SUPERVISOR_URL", "http://supervisor")
-LINK = '<h1>Bambu Hub</h1>\n  <p><a href="api/bridge/">Bambu accounts</a></p>'
 
 
 def supervisor(path, body=None):
@@ -33,20 +32,13 @@ def hostname():
     return env("HUB_HOSTNAME") or supervisor("/addons/self/info")["data"]["hostname"]
 
 
-def page(h, m, q):
-    with open(os.path.join(s.HERE, "index.html"), encoding="utf-8") as f:
-        html = f.read()
-    assert "<h1>Bambu Slicer</h1>" in html
-    h.send(200, html.replace("<h1>Bambu Slicer</h1>", LINK).encode(), "text/html; charset=utf-8")
-
-
 def main():
     ha = HA(s.CORE, env("HUB_HA_WS", "ws://supervisor/core/websocket"), env("SUPERVISOR_TOKEN", ""))
     app = App(ha, env("HUB_DATA", "/data"), s.SHARE, BRIDGE, s, hostname, int(env("SLICER_PORT", "8099")),
+              ui_dir=env("HUB_UI", os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui")),
               trusted_ips=[i for i in env("HUB_INGRESS_IPS", "172.30.32.2").split(",") if i])
     app.install()
 
-    s.ROUTES[:] = [r for r in s.ROUTES if r[:2] != ("GET", "/")] + [("GET", "/", page)]
     stop = threading.Event()
     threading.Thread(target=app.run_ticker, args=(stop,), daemon=True).start()
     threading.Thread(target=ha.watch_state_changes, args=(app.on_state, stop), daemon=True).start()

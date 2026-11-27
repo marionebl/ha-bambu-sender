@@ -65,6 +65,8 @@ class Spools:
         if not str(s["type"]).strip():
             raise ValueError("type is required")
         for k in NUMBERS:
+            if k == "price_per_kg" and s[k] is None:
+                continue  # "no price" is allowed; cost counts it as 0
             if isinstance(s[k], bool) or not isinstance(s[k], (int, float)) or s[k] < 0:
                 raise ValueError(k + " must be a number >= 0")
         for k in ("unit", "slot"):

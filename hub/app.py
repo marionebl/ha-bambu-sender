@@ -35,6 +35,8 @@ SENSORS = {"status": "print_status", "stage": "current_stage", "progress": "prin
            "bed_t": "bed_target_temperature", "chamber": "chamber_temperature", "tray": "active_tray",
            "task": "task_name"}
 BRIDGE_STATE = {"RUNNING": "running", "FINISH": "finish", "FAILED": "failed", "IDLE": "idle", "PAUSE": "pause"}
+UI_FILES = r"(index\.html|style\.css|app\.js|api\.js|util\.js|views/[a-z]+\.js)"
+MIME = {"html": "text/html; charset=utf-8", "css": "text/css; charset=utf-8", "js": "text/javascript; charset=utf-8"}
 DOMAIN_DEFAULTS = "schedule,input_boolean,binary_sensor,person"
 
 
@@ -74,10 +76,10 @@ class Capture:
 
 class App:
     def __init__(self, ha, data_dir, share, bridge, slicer, hostname_fn, port, clock=time.time,
-                 trusted_ips=()):
+                 trusted_ips=(), ui_dir=None):
         self.ha, self.share, self.bridge, self.s = ha, share, bridge, slicer
         self.hostname_fn, self.port, self.clock, self.trusted_ips = hostname_fn, port, clock, set(trusted_ips)
-        self.data_dir = data_dir
+        self.data_dir, self.ui_dir = data_dir, ui_dir
         os.makedirs(os.path.join(data_dir, "plates"), exist_ok=True)
         self.registry = Registry(data_dir)
         self.spools = filament.Spools(data_dir)
@@ -385,7 +387,7 @@ class App:
         prices, used = [], []
         for f, g in zip(job["filaments"], grams):
             sp = self.spools.match(serial, f["type"], f["colour"], hint)
-            prices.append(sp["price_per_kg"] if sp else 0)
+            prices.append((sp["price_per_kg"] or 0) if sp else 0)
             if sp and g:
                 self.spools.consume(sp, g)
                 used.append({"spool_id": sp["id"], "grams": g})
@@ -449,7 +451,7 @@ class App:
             # Mutating requests are answered after sync(), so a client that reads the answer then polls events sees the change.
             out = Capture(h) if method != "GET" else h
             try:
-                if u.path != "/" and not internal and not (h.headers.get("X-Remote-User-Id") or "").strip():
+                if not self.is_public(u.path) and not internal and not (h.headers.get("X-Remote-User-Id") or "").strip():
                     raise Unauthorized("missing X-Remote-User-Id: requests need a Home Assistant identity")
                 fn(out, m, parse_qs(u.query))
             except Unauthorized as e:
@@ -475,6 +477,18 @@ class App:
                     h.send(*out.out)
             return
         h.send(404, {"error": "not found"})
+
+    def is_public(self, path):
+        """The web UI's own files carry no data, so they load without identity (the API behind them does not)."""
+        return bool(self.ui_dir) and (path == "/" or re.fullmatch("/" + UI_FILES, path) is not None)
+
+    def get_ui(self, h, m, q):
+        name = (m.group(1) if m.re.groups else None) or "index.html"
+        try:
+            with open(os.path.join(self.ui_dir, name), "rb") as f:
+                h.send(200, f.read(), MIME[name.rsplit(".", 1)[1]])
+        except OSError:
+            raise NotFound("no such file")
 
     # -- route functions --
     def role_or_none(self, c, serial):
@@ -684,7 +698,8 @@ class App:
             raise NotFound("no such spool")
         self.spool_admin(c, s)
         b = h.json()
-        self.spool_admin(c, {"printer": b.get("printer", s["printer"])})
+        if b.get("printer"):  # unlinking is fine; linking needs admin of the target printer too
+            self.spool_admin(c, {"printer": b["printer"]})
         return self.spools.update(m.group(1), **b)
 
     def delete_spool(self, h, m, q, c):
@@ -707,6 +722,18 @@ class App:
         out = [{"entity_id": eid, "name": s["attributes"].get("friendly_name") or eid, "state": s["state"]}
                for eid, s in self.ha.states().items() if eid.split(".", 1)[0] in domains]
         return sorted(out, key=lambda e: e["entity_id"])
+
+    def grant_view(self, g):
+        u = self.get_user(g["user_id"]) or {}
+        return dict(g, user_name=u.get("name") or g["user_id"], active=self.grants.is_active(g))
+
+    def get_grants(self, h, m, q, c):
+        return [self.grant_view(g) for g in self.access.bind(self.queue, c).grants_list()]
+
+    def post_grants(self, h, m, q, c):
+        from queue_routes import GRANT_FIELDS
+        b = h.json()
+        return self.grant_view(self.access.bind(self.queue, c).grants_add(**{k: b[k] for k in GRANT_FIELDS if k in b}))
 
     def get_events(self, h, m, q, c):
         self.sync()
@@ -751,11 +778,15 @@ class App:
             ("GET", r"/api/ha/users", w(self.get_ha_users, "ha_admin")),
             ("GET", r"/api/ha/entities", w(self.get_ha_entities, "ha_admin")),
             ("GET", r"/api/events", w(self.get_events, "internal")),
+            ("GET", r"/api/grants", w(self.get_grants)),
+            ("POST", r"/api/grants", w(self.post_grants)),
             # The bridge's own page and API (account login), for HA admins only.
             ("GET", r"/api/bridge/(.*)", self.bridge_route),
             ("POST", r"/api/bridge/(.*)", self.bridge_route),
             ("DELETE", r"/api/bridge/(.*)", self.bridge_route),
         ]
+        if self.ui_dir:
+            mine += [("GET", "/", self.get_ui), ("GET", "/" + UI_FILES, self.get_ui)]
         return mine + make_routes(self.queue, self.access, self.is_internal)
 
     def install(self):

@@ -1,5 +1,5 @@
 name: Bambu Hub
-version: "1.1.0"
+version: "1.2.0"
 slug: bambu_hub
 # Built and pushed by .github/workflows/hub.yml on main; HA pulls <image>:<version>.
 image: ghcr.io/marionebl/ha-bambu-hub-{arch}

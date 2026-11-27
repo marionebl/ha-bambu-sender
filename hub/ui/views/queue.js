@@ -25,12 +25,13 @@ export async function mount(ctx, root) {
     if (await attempt(() => api.jobAction(j.id, action, body), ok)) refresh();
   }
 
-  // Reorder: position is among all waiting jobs (admin) or the caller's own (user).
-  const pool = (j) => data.jobs.filter((x) => WAITING.includes(x.state) && (isAdminFor(j) || isOwn(x)));
+  // Reorder: position is 0-based among the waiting jobs of the same printer (scope), or of all printers for "any" jobs;
+  // a user's pool holds only their own jobs.
+  const pool = (j) => data.jobs.filter((x) => WAITING.includes(x.state) && (j.target === 'any' || x.target === j.target) && (isAdminFor(j) || isOwn(x)));
   function moveTo(j, neighbour) {
     const at = pool(j).findIndex((x) => x.id === neighbour.id);
     if (at < 0 || neighbour.id === j.id) return;
-    return act(j, 'reorder', { position: at });
+    return act(j, 'reorder', j.target === 'any' ? { position: at } : { position: at, scope: j.target });
   }
   function step(j, group, dir) {
     const scope = group.filter((x) => isAdminFor(j) || isOwn(x));
