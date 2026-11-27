@@ -21,6 +21,8 @@ PRINTER = {
     "online": True, "print_status": "IDLE", "account": "a1", "email": "me@example.com", "live": {"cached": True},
 }
 HEALTH = {"server": "ok", "accounts": []}
+HUB_URL = "http://local-bambu-sender:8099"
+HUB_SECRET = "s" * 32
 
 
 def make_3mf(model="Bambu Lab H2S", ams=True, claims=True, png=None):

@@ -1,0 +1,30 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+      - name: System libraries (JPEG encoding in the camera tests)
+        run: sudo apt-get update -q && sudo apt-get install -y -q libturbojpeg ffmpeg
+      - run: pip install -r requirements-test.txt
+      - name: HA integration
+        run: python -m pytest tests
+      - name: Slicer app API
+        run: python -m pytest slicer/tests
+      - name: Add-on server
+        run: cd test-server && python -m pytest
+      - name: Hub print queue
+        run: python -m pytest -p no:homeassistant -p no:socket hub/queue/tests
+      - name: Hub app
+        run: python -m pytest -p no:homeassistant -p no:socket hub/tests
