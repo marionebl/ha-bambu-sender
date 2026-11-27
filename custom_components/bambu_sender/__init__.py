@@ -104,7 +104,9 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Reload only when url/hub data changed; options (secrets, recipients) are read live."""
+    if dict(entry.data) != entry.runtime_data.loaded_data:
+        await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -121,6 +123,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.watchdog = PrintWatchdog(hass, coordinator)
     entry.async_on_unload(coordinator.watchdog.async_stop)
     coordinator.hub = None
+    coordinator.loaded_data = dict(entry.data)
     if entry.data.get(CONF_HUB_SECRET):
         hub = coordinator.hub = HubCoordinator(hass, entry)
         entry.async_on_unload(hub.async_add_listener(lambda: None))  # keeps the 5 s polling alive
