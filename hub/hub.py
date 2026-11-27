@@ -1,21 +1,36 @@
 #!/usr/bin/env python3
-"""Hub UI on the ingress port: the slicer server, plus the Sender's page and API under /api/bridge/.
+"""Hub app on the ingress port: the slicer server with the hub API (app.py) mounted on it.
 
-HA ingress reaches one port only. The slicer is the main UI, and the bridge keeps its own unchanged routes on 8098 for
-the integration, so this proxies instead of touching either server. Relative URLs in both pages work under /api/bridge/.
+HA ingress reaches one port only. The bridge keeps its own unchanged routes on 8098 for the integration; its page and
+API stay reachable for HA admins under /api/bridge/.
 """
-import http.client
+import json
 import os
-import re
 import sys
-from urllib.parse import urlsplit
+import threading
+import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # python -I drops the script dir
 import slicer_server as s
+from app import App, log
+from ha import HA
 
-BRIDGE = ("127.0.0.1", int(os.environ.get("BAMBU_PORT", "8098")))
-HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "server", "date"}
+env = os.environ.get
+BRIDGE = ("127.0.0.1", int(env("BAMBU_PORT", "8098")))
+SUPERVISOR = env("HUB_SUPERVISOR_URL", "http://supervisor")
 LINK = '<h1>Bambu Hub</h1>\n  <p><a href="api/bridge/">Bambu accounts</a></p>'
+
+
+def supervisor(path, body=None):
+    req = urllib.request.Request(SUPERVISOR + path, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + env("SUPERVISOR_TOKEN", ""),
+                                          "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.loads(r.read() or b"null")
+
+
+def hostname():
+    return env("HUB_HOSTNAME") or supervisor("/addons/self/info")["data"]["hostname"]
 
 
 def page(h, m, q):
@@ -25,39 +40,28 @@ def page(h, m, q):
     h.send(200, html.replace("<h1>Bambu Slicer</h1>", LINK).encode(), "text/html; charset=utf-8")
 
 
-def bridge(h, m, q):
-    path = "/" + m.group(1)
-    query = urlsplit(h.path).query
-    length = int(h.headers.get("Content-Length") or 0)
-    conn = http.client.HTTPConnection(*BRIDGE, timeout=300)
-    try:
-        conn.request(h.command, path + ("?" + query if query else ""), h.rfile.read(length) if length else None,
-                     {k: v for k, v in h.headers.items() if k.lower() in ("content-type", "content-length")})
-        r = conn.getresponse()
-    except OSError as e:
-        return h.send(502, {"error": "bridge is not reachable: %s" % e})
-    h.send_response(r.status)
-    for k, v in r.getheaders():
-        if k.lower() not in HOP:
-            h.send_header(k, v)
-    h.close_connection = True  # the camera stream has no length; HTTP/1.0 ends it by closing
-    h.end_headers()
-    try:
-        while chunk := r.read(65536):
-            h.wfile.write(chunk)
-    except OSError:
-        pass  # viewer left
-    finally:
-        conn.close()
+def main():
+    ha = HA(s.CORE, env("HUB_HA_WS", "ws://supervisor/core/websocket"), env("SUPERVISOR_TOKEN", ""))
+    app = App(ha, env("HUB_DATA", "/data"), s.SHARE, BRIDGE, s, hostname, int(env("SLICER_PORT", "8099")),
+              trusted_ips=[i for i in env("HUB_INGRESS_IPS", "172.30.32.2").split(",") if i])
+    app.install()
 
+    s.ROUTES[:] = [r for r in s.ROUTES if r[:2] != ("GET", "/")] + [("GET", "/", page)]
+    stop = threading.Event()
+    threading.Thread(target=app.run_ticker, args=(stop,), daemon=True).start()
+    threading.Thread(target=ha.watch_state_changes, args=(app.on_state, stop), daemon=True).start()
 
-s.ROUTES[:] = [r for r in s.ROUTES if r[:2] != ("GET", "/")] + [
-    ("GET", "/", page),
-    ("GET", r"/api/bridge/(.*)", bridge),
-    ("POST", r"/api/bridge/(.*)", bridge),
-    ("DELETE", r"/api/bridge/(.*)", bridge),
-]
-s.Handler.do_DELETE = lambda self: self.dispatch("DELETE")
+    def announce():
+        while not stop.is_set():
+            try:
+                supervisor("/discovery", app.discovery())
+                return log("discovery sent")
+            except Exception as e:  # noqa: BLE001 - Supervisor may not be ready yet
+                log("discovery failed, retrying: %s" % e)
+                stop.wait(30)
+    threading.Thread(target=announce, daemon=True).start()
+    s.main()
+
 
 if __name__ == "__main__":
-    s.main()
+    main()

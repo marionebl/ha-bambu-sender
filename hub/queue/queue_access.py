@@ -167,13 +167,13 @@ class Bound:
         return self.q.add(file, source, target, model, filaments, options,
                           owner_user_id=self.c.user_id or None, owner_name=self.c.display, pending=pending)
 
-    def reorder(self, job_id, position):
+    def reorder(self, job_id, position, scope=None):
         job = self._job(job_id)
         serials = self.a.serials_of(job)
         if self.a.best(self.c, serials) == "admin":
-            return self.q.reorder(job_id, position)
+            return self.q.reorder(job_id, position, scope=scope)
         if self.a.best(self.c, serials) == "user" and job.get("owner_user_id") == self.c.user_id:
-            return self.q.reorder(job_id, position, owner=self.c.user_id)
+            return self.q.reorder(job_id, position, owner=self.c.user_id, scope=scope)
         raise Forbidden("rule: users may only reorder their own jobs; admins reorder any job")
 
     def move(self, job_id, target, model=""):

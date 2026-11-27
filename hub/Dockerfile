@@ -73,6 +73,7 @@ COPY --from=studio /opt/bs /opt/bs
 COPY slicer/slice.sh slicer/bs.py /opt/bs/bin/
 COPY slicer/server.py /srv/slicer_server.py
 COPY slicer/index.html hub/hub.py /srv/
+COPY hub/app.py hub/ha.py hub/filament.py hub/queue/queue_*.py /srv/
 COPY hub/run.sh /run.sh
 ENV BAMBU_DAEMON_CMD=/opt/bridge/bridge.sh BAMBU_CERT=/opt/bridge/slicer_base64.cer \
     SLICER_SENDER_URL=http://127.0.0.1:8098 SLICER_PORT=8099 \
