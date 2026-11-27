@@ -16,3 +16,5 @@ jobs:
         run: pip install -q pytest && python3 -m pytest -q slicer/tests
       - name: Build the app image and slice the test plate through its API
         run: slicer/tests/image_test.sh
+      - name: Slice in headless Chromium (browser engine vs native Bambu Studio) and run the G-code guard
+        run: slicer/tests/browser_test.sh

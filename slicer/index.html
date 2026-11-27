@@ -42,6 +42,7 @@ input[type=range] { width:100%; }
 pre { white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; background:var(--bg); padding:8px; border-radius:8px; }
 .legend { display:flex; flex-wrap:wrap; gap:10px; font-size:12px; color:var(--muted); margin-top:6px; }
 .legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+footer { margin-top:16px; font-size:12px; color:var(--muted); }
 .spin { display:inline-block; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:s 1s linear infinite; vertical-align:-2px; margin-right:6px; }
 @keyframes s { to { transform:rotate(360deg); } }
 </style>
@@ -59,6 +60,9 @@ pre { white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; bac
     <label class="h">Model</label>
     <div id="drop" class="drop">Drop an STL, 3MF, OBJ or STEP file here, or click to choose one.<input id="file" type="file" accept=".stl,.3mf,.obj,.step,.stp" hidden></div>
     <div id="upload-msg" class="muted"></div>
+    <label class="h">Slice on</label>
+    <div id="where" class="row"></div>
+    <div id="engine-info" class="muted"></div>
     <label class="h">Printer</label>
     <div id="printers" class="row"><span class="muted"><span class="spin"></span>Reading printers…</span></div>
     <label class="h">Quality</label>
@@ -73,6 +77,7 @@ pre { white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; bac
 
   <section id="s-preview" hidden>
     <div id="slicing"></div>
+    <p id="slice-info" class="muted"></p>
     <div id="result" hidden>
       <div class="stats" id="stats"></div>
       <div id="warnings" class="warn"></div>
@@ -99,6 +104,9 @@ pre { white-space:pre-wrap; font-size:12px; max-height:200px; overflow:auto; bac
     <div><button id="send" class="go" disabled>Send to printer</button></div>
     <div id="print-msg"></div>
   </section>
+  <footer>Browser slicing runs the Muon3D Slicer Engine, OrcaSlicer compiled to WebAssembly (AGPL-3.0):
+    <a href="https://github.com/Muon-3D/muon3d-slicer-engine/tree/v0.6.0-m1.9" target="_blank" rel="noopener">source</a> ·
+    <a id="lic" target="_blank">licence</a> · <a id="notices" target="_blank">notices</a></footer>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -107,7 +115,10 @@ const api = (path, opt) => fetch(path, opt).then(async r => {
   if (!r.ok) throw new Error(body.error || ("HTTP " + r.status));
   return body;
 });
-const state = { job: null, printers: [], printer: null, quality: "better", tray: null };
+const state = { job: null, file: null, printers: [], printer: null, quality: "better", tray: null,
+  where: crossOriginIsolated ? "browser" : "pi" };  // threads need isolation; without it the Pi is quicker
+const isStl = () => /\.stl$/i.test(state.job?.filename || "");
+const where = () => (state.where === "browser" && (!state.job || isStl()) ? "browser" : "pi");
 const LABEL = { good: "Good", better: "Better", best: "Best" };
 
 function tab(name) {
@@ -140,6 +151,11 @@ function render() {
     if (!state.printer.trays.length) tr.innerHTML = '<span class="muted">No AMS trays reported. Is the printer online?</span>';
   }
   $("slice").disabled = !(state.job && state.printer && state.tray);
+  const w = $("where"); w.innerHTML = "";
+  w.append(chip("This device", where() === "browser", () => { state.where = "browser"; render(); }, state.job && !isStl()));
+  w.append(chip("Pi (Bambu Studio)", where() === "pi", () => { state.where = "pi"; render(); }));
+  if (state.job && !isStl()) w.insertAdjacentHTML("beforeend", '<span class="muted">Browser slicing needs an STL; this file slices on the Pi.</span>');
+  if (where() === "browser" && !engine.p) warm();
 }
 
 async function loadPrinters() {
@@ -156,6 +172,7 @@ async function upload(file) {
   $("upload-msg").innerHTML = `<span class="spin"></span>Uploading ${esc(file.name)}…`;
   try {
     state.job = await api("api/jobs?name=" + encodeURIComponent(file.name), { method: "POST", body: file });
+    state.file = file;
     $("upload-msg").textContent = `${file.name} (${(file.size / 1048576).toFixed(1)} MB) is ready.`;
     $("t-preview").disabled = $("t-print").disabled = true;
   } catch (e) { $("upload-msg").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
@@ -167,15 +184,137 @@ $("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"
 $("drop").ondragleave = () => $("drop").classList.remove("over");
 $("drop").ondrop = e => { e.preventDefault(); $("drop").classList.remove("over"); e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]); };
 
-$("slice").onclick = async () => {
-  $("prepare-err").textContent = "";
+$("slice").onclick = () => { $("prepare-err").textContent = ""; return where() === "browser" ? sliceInBrowser() : sliceOnPi(); };
+
+async function sliceOnPi() {
+  $("slice-info").textContent = "";
   try {
     state.job = await api(`api/jobs/${state.job.id}/slice`, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ serial: state.printer.serial, quality: state.quality, tray: state.tray, bed: $("bed").value }) });
   } catch (e) { $("prepare-err").textContent = e.message; return; }
   $("t-preview").disabled = false; $("t-print").disabled = true; $("result").hidden = true;
   tab("preview"); poll();
-};
+}
+
+// --- Slicing in the browser: the engine runs in a Web Worker and speaks protocol v2 (docs/PROTOCOL.md of the engine) ---
+const engine = { p: null };
+
+function connect(worker) {
+  let next = 0; const pending = new Map();
+  const failAll = err => { for (const p of pending.values()) p.reject(err); pending.clear(); };
+  worker.onmessage = ({ data: m }) => {
+    const p = pending.get(m.id);
+    if (!p) return;
+    if (m.kind === "progress") p.progress?.(m.progress);
+    else if (m.kind === "result") { pending.delete(m.id); p.resolve(m.result); }
+    else if (m.kind === "error") { pending.delete(m.id); p.reject(new Error(m.error.message + (m.error.detail ? ` (${m.error.detail})` : ""))); }
+  };
+  worker.onerror = e => failAll(new Error("The engine worker failed: " + (e.message || "could not start")));
+  return { request: (op, params, progress, transfer = []) => new Promise((resolve, reject) => {
+    const id = ++next; pending.set(id, { resolve, reject, progress });
+    worker.postMessage({ v: 2, id, op, params }, transfer);
+  }) };
+}
+
+// Started when browser slicing is chosen (the default where isolated), before Slice is pressed, so the engine's start
+// and download are not part of the slice time.
+function warm() {
+  const t0 = performance.now(), info = $("engine-info");
+  info.innerHTML = '<span class="spin"></span>Starting the slicing engine…';
+  info.dataset.ready = ""; info.dataset.error = "";
+  engine.p = (async () => {
+    const tag = (await api("engine/version.json")).tag;
+    const base = new URL(`engine/${tag}/`, location.href);
+    $("lic").href = new URL("LICENSE", base); $("notices").href = new URL("THIRD-PARTY-NOTICES.md", base);
+    const manifest = await api(new URL("manifest.json", base));
+    const worker = new Worker(new URL(manifest.host.file, base), { type: "module", name: "slicer-engine" });
+    try {
+      const conn = connect(worker);
+      const hello = await conn.request("hello", { protocol: { major: 2 }, client: { name: "bambu-slicer", version: "0.2.0" } });
+      const forceSt = new URLSearchParams(location.search).get("engine") === "st";  // for comparing the two engines
+      const variant = crossOriginIsolated && !forceSt && hello.variants.includes("mt") ? "mt" : "st";
+      await conn.request("load", { variant });
+      return { worker, conn, variant, loadMs: performance.now() - t0 };
+    } catch (e) { worker.terminate(); throw e; }
+  })();
+  engine.p.then(e => {
+    info.textContent = `Engine ready: ${e.variant === "mt" ? "multi-thread" : "single-thread"} (${e.variant}), loaded in ${(e.loadMs / 1000).toFixed(1)} s.`;
+    info.dataset.variant = e.variant; info.dataset.loadMs = Math.round(e.loadMs); info.dataset.ready = "1";
+  }, e => { info.innerHTML = `<span class="err">The slicing engine did not start: ${esc(e.message)}</span>`; info.dataset.error = e.message; });
+}
+
+function parseStl(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength >= 84 && buf.byteLength === 84 + dv.getUint32(80, true) * 50) {  // binary: 84 bytes + 50 per triangle
+    const n = dv.getUint32(80, true), out = new Float32Array(n * 9);
+    for (let t = 0; t < n; t++) for (let i = 0; i < 9; i++) out[t * 9 + i] = dv.getFloat32(84 + t * 50 + 12 + i * 4, true);
+    return out;
+  }
+  const v = [...new TextDecoder().decode(buf).matchAll(/^\s*vertex\s+(\S+)\s+(\S+)\s+(\S+)/gm)].flatMap(m => [+m[1], +m[2], +m[3]]);
+  if (!v.length || v.length % 9) throw new Error("Not an STL file: no triangles found.");
+  return new Float32Array(v);
+}
+
+// The engine wants bed coordinates: centred on the printable area, resting on z = 0.
+function placeOnBed(pos, machine) {
+  const area = [machine.printable_area].flat().join(",").split(",").map(p => p.split("x").map(Number));
+  const cx = (Math.min(...area.map(p => p[0])) + Math.max(...area.map(p => p[0]))) / 2;
+  const cy = (Math.min(...area.map(p => p[1])) + Math.max(...area.map(p => p[1]))) / 2;
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i += 3) for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], pos[i + a]); hi[a] = Math.max(hi[a], pos[i + a]); }
+  const d = [cx - (lo[0] + hi[0]) / 2, cy - (lo[1] + hi[1]) / 2, -lo[2]];
+  for (let i = 0; i < pos.length; i += 3) for (let a = 0; a < 3; a++) pos[i + a] += d[a];
+  return pos;
+}
+
+// Same rule as bs.py filament-for: the tray's filament id, else the Generic profile of its type; fewest printers first.
+function pickFilament(filaments, tray) {
+  const rank = f => (tray.idx && f.id === tray.idx ? 0 : f.name.startsWith("Generic ") && f.type === tray.type ? 1 : 9);
+  const best = filaments.filter(f => rank(f) < 9).sort((a, b) => rank(a) - rank(b) || a.n - b.n || (a.name < b.name ? -1 : 1))[0];
+  if (!best) throw new Error(`No filament preset for ${tray.name} (${tray.type}).`);
+  return best;
+}
+
+async function sliceInBrowser() {
+  const t0 = performance.now(), p = state.printer, tray = p.trays.find(t => t.ams + ":" + t.id === state.tray);
+  $("t-preview").disabled = false; $("t-print").disabled = true; $("result").hidden = true; $("slice-info").textContent = "";
+  if (!engine.p) warm();
+  tab("preview");
+  const msg = t => { $("slicing").innerHTML = `<p><span class="spin"></span>${esc(t)}</p>`; };
+  let eng;
+  try {
+    msg("Preparing…");
+    const [presets, buf] = await Promise.all([api(`engine/presets/${p.model}.json`), state.file.arrayBuffer()]);
+    eng = await engine.p;
+    const filament = pickFilament(presets.filaments, tray), bed = $("bed").value;
+    const machine = presets.machine, process = presets.process[state.quality];
+    machine.curr_bed_type = process.curr_bed_type = bed;  // Orca refuses PETG on its default Cool Plate
+    const positions = placeOnBed(parseStl(buf), machine);
+    const ts = performance.now();
+    const r = await eng.conn.request("slice", {
+      configs: { machine, process, filaments: [filament.config] },
+      objects: [{ name: state.file.name, mesh: { positions } }], output: { toolpaths: false },
+    }, pr => msg(`Slicing ${state.file.name} in this browser (${eng.variant})… ${Math.round(pr.percent)} % ${pr.message || ""}`), [positions.buffer]);
+    const sliceMs = performance.now() - ts, st = r.stats;
+    msg("Saving the G-code…");
+    const qs = new URLSearchParams({ serial: p.serial, quality: state.quality, tray: state.tray, bed, filament: filament.name,
+      seconds: st.printTimeSeconds ?? 0, grams: st.filamentG ?? 0, metres: (st.filamentMm ?? 0) / 1000,
+      engine: eng.variant, slice_s: (sliceMs / 1000).toFixed(1) });
+    state.job = await api(`api/jobs/${state.job.id}/gcode?` + qs, { method: "POST", body: r.gcode });
+    const totalMs = performance.now() - t0, el = $("slice-info");
+    el.textContent = `Sliced in this browser with the ${eng.variant} engine: slice ${(sliceMs / 1000).toFixed(1)} s, engine start ${(eng.loadMs / 1000).toFixed(1)} s (before you pressed Slice), ${(totalMs / 1000).toFixed(1)} s in all.`;
+    Object.assign(el.dataset, { variant: eng.variant, isolated: crossOriginIsolated, sliceMs: Math.round(sliceMs), loadMs: Math.round(eng.loadMs), totalMs: Math.round(totalMs) });
+    $("slicing").innerHTML = "";
+    showResult(state.job);
+  } catch (e) {
+    $("slicing").innerHTML = `<p class="err">Slicing in the browser failed: ${esc(e.message)}</p><button id="use-pi" class="go">Slice on the Pi instead</button>`;
+    $("use-pi").onclick = sliceOnPi;
+  } finally {
+    // A fresh worker per slice: the engine's memory only grows. The download comes from the browser cache.
+    if (eng) eng.worker.terminate();
+    engine.p = null; render();  // render() warms a new one while browser slicing is chosen
+  }
+}
 
 async function poll() {
   const j = state.job = await api(`api/jobs/${state.job.id}`).catch(e => ({ state: "failed", error: e.message }));
@@ -295,6 +434,7 @@ $("send").onclick = async () => {
 };
 
 loadPrinters();
+render();
 </script>
 </body>
 </html>

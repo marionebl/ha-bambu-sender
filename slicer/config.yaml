@@ -1,5 +1,5 @@
 name: Bambu Slicer
-version: "0.1.0"
+version: "0.2.0"
 slug: bambu_slicer
 description: Slice a model with Bambu Studio, preview the layers and send it to a Bambu printer, in the browser
 arch: [aarch64, amd64]
