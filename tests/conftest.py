@@ -21,6 +21,8 @@ PRINTER = {
     "online": True, "print_status": "IDLE", "account": "a1", "email": "me@example.com", "live": {"cached": True},
 }
 HEALTH = {"server": "ok", "accounts": []}
+HUB_URL = "http://local-bambu-sender:8099"
+HUB_SECRET = "s" * 32
 
 
 def make_3mf(model="Bambu Lab H2S", ams=True, claims=True, png=None):
@@ -62,10 +64,12 @@ def media(hass, tmp_path):
     return tmp_path
 
 
-def mock_addon(mock, printers=None):
+def mock_addon(mock, printers=None, integration=True):
     mock.clear_requests()
     mock.get(f"{URL}/api/health", json=HEALTH)
     mock.get(f"{URL}/api/printers", json=[PRINTER] if printers is None else printers)
+    if integration:
+        mock.get(HUB_URL + "/api/integration", status=404)  # no hub: options flow finds no secret
 
 
 @pytest.fixture

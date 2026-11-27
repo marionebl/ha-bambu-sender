@@ -21,3 +21,19 @@ CONF_UPLOAD_SECRET = "upload_secret"
 UPLOAD_SECRET_HEADER = "X-Bambu-Sender-Secret"
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MIN_SECRET_LENGTH = 24
+
+# Bambu Hub app (this repo's hub/): the bridge stays on 8098, the hub API is on 8099.
+CONF_HUB_URL = "hub_url"
+CONF_HUB_SECRET = "hub_secret"
+CONF_RECIPIENTS = "recipients"  # {person entity_id: notify service}
+HUB_PORT = 8099
+BRIDGE_PORT = 8098
+HUB_SLUG_SUFFIX = "_bambu_hub"
+OLD_SLUG = "local_bambu_sender"
+# Hostname computed from the repository hash; used only when the Supervisor cannot tell.
+DEFAULT_HUB_URL = "http://0990873a-bambu-hub:8098"
+SUPERVISOR_URL = "http://supervisor"
+EVENT_INTERVAL = timedelta(seconds=5)
+EVENT_PREFIX = "bambu_hub_"
+ACTION_PREFIX = "BAMBU_HUB_START_"
+HUB_SECRET_HEADER = "X-Hub-Secret"

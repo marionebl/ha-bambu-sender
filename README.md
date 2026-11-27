@@ -52,6 +52,14 @@ Before anything is sent, `bambu_sender.print_file` and the Start button check th
 
 `force` only overrides the "printer is busy" check, not this guard. Agents can run it before upload: `python3 tools/review/bin/check_gcode.py FILE --printer H2S [--no-ams]`.
 
+## Bambu Hub integration (v0.9)
+
+- Setup finds the app through the Supervisor (`*_bambu_hub`, else the old `local_bambu_sender`); the URL can be set by hand in the options. Existing entries migrate by themselves (same entities and IDs).
+- Options: hub secret (left empty, it is read from the hub's `/api/integration` when that allows it), notification recipients as a map `person.<name>: notify.<service>`.
+- Todo list `Queue` per printer: queued and pending jobs (owner in the description). Deleting an item cancels the job, moving it reorders; adding is not supported (a job needs a sliced file).
+- Events: the hub is polled every 5 s and fires `bambu_hub_job_done`, `_job_failed`, `_job_started`, `_approval_needed`, `_queue_changed` with the hub's payload.
+- Notifications go to the printer's admins, and only to people whose `person` is `home`. After `job_done` with a next job queued they get "Plate clear? Start next: <job>"; the action starts it (`start-next` with `plate_clear`). `approval_needed` notifies the admins.
+
 ## Tests
 
 ```
