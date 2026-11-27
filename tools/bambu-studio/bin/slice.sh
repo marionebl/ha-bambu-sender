@@ -28,10 +28,10 @@ done
 $BS set "$W/process.json" curr_bed_type "\"${BED:-High Temp Plate}\""
 STEM=$(basename "$IN"); STEM=${STEM%.*}
 # Same as AppRun, plus the bundled system libs in $ROOT/lib when setup.sh unpacked them.
-env -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C LD_LIBRARY_PATH="$APP/bin:$ROOT/lib" XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-$W} "$APP/bin/bambu-studio" --datadir "$W/data" --allow-newer-file \
+env -u DISPLAY -u WAYLAND_DISPLAY LC_ALL=C LD_LIBRARY_PATH="$APP/bin:$ROOT/lib" XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-$W} "$APP/bin/bambu-studio" --datadir "$W/data" --allow-newer-file ${BS_ARGS:-} \
   --slice 1 --load-settings "$W/machine.json;$W/process.json" --load-filaments "$FL" \
   --outputdir "$W" --export-3mf "$STEM.gcode.3mf" "$IN" >"$W/log" 2>&1 || { tail -20 "$W/log" >&2; exit 3; }
 [ -s "$W/$STEM.gcode.3mf" ] || { tail -20 "$W/log" >&2; echo "FAIL: no .gcode.3mf written" >&2; exit 3; }
 MID=$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["model_id"])' "$PROF/BBL/machine/$(J "$W/machine.json" printer_model).json")
-$BS fixup "$W/$STEM.gcode.3mf" "$MID"; mv "$W/$STEM.gcode.3mf" "$OUT/"
+$BS fixup "$W/$STEM.gcode.3mf" "$MID"; $BS preview "$W/$STEM.gcode.3mf"; mv "$W/$STEM.gcode.3mf" "$OUT/"
 echo "$OUT/$STEM.gcode.3mf"

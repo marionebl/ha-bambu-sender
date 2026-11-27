@@ -22,6 +22,10 @@ Defaults: printer `Bambu Lab H2S 0.4 nozzle`; process and filament are that prin
 The CLI only accepts fully merged profiles (this build ships no `*_full` ones), so `bin/bs.py` merges
 `inherits` + `include` + own keys, as Bambu Studio's PresetBundle does. It also fills `printer_model_id`.
 
+The CLI renders the plate preview (`Metadata/plate_1.png`) only with a Wayland display, so headless slices had none.
+`bs.py preview` then draws an isometric view of the plate's objects in the filament colour. The printer, ha-bambulab
+and bambu_sender's Current print image show this preview.
+
 ## Publishing the tarball (needs docker and a `gh` with release rights)
 
     tools/bambu-studio/release.sh --publish

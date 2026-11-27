@@ -39,7 +39,7 @@ curl -fsS -X PUT --data-binary @plate.gcode.3mf \
 - The file must be a sliced 3MF (it has `Metadata/plate_N.gcode`). The limit is 64 MB. An existing name needs `?overwrite=1`.
 - The answer has the stored name, the size and the SHA-256.
 
-The integration needs the Bambu Sender add-on (`http://local-bambu-sender:8098`).
+The integration needs the Bambu Hub app (bridge API on port 8098; the old Bambu Sender add-on answered at `http://local-bambu-sender:8098`).
 
 ## Print guard
 
@@ -52,6 +52,14 @@ Before anything is sent, `bambu_sender.print_file` and the Start button check th
 
 `force` only overrides the "printer is busy" check, not this guard. Agents can run it before upload: `python3 tools/review/bin/check_gcode.py FILE --printer H2S [--no-ams]`.
 
+## Bambu Hub integration (v0.9)
+
+- Setup finds the app through the Supervisor (`*_bambu_hub`, else the old `local_bambu_sender`); the URL can be set by hand in the options. Existing entries migrate by themselves (same entities and IDs).
+- Options: hub secret (normally delivered by the app through Supervisor discovery, which also keeps URLs and secret current; paste it by hand otherwise), notification recipients as a map `person.<name>: notify.<service>`.
+- Todo list `Queue` per printer: queued and pending jobs (owner in the description). Deleting an item cancels the job, moving it reorders; adding is not supported (a job needs a sliced file).
+- Events: the hub is polled every 5 s and fires `bambu_hub_job_done`, `_job_failed`, `_job_started`, `_approval_needed`, `_queue_changed` with the hub's payload.
+- Notifications go to the printer's admins, and only to people whose `person` is `home`. After `job_done` with a next job queued they get "Plate clear? Start next: <job>"; the action starts it (`start-next` with `plate_clear`). `approval_needed` notifies the admins.
+
 ## Tests
 
 ```
@@ -59,17 +67,23 @@ pip install pytest-homeassistant-custom-component
 pytest tests
 ```
 
-## Add-on
+## Bambu Hub app
 
-`addon/` is the Bambu Sender app (add-on). It runs the boo-cloud bridge, an x86_64 binary, under
-`qemu-x86_64` on the arm64 Pi. One bridge daemon runs per Bambu account. Install it as a local app in `/addons/bambu_sender`.
+`hub/` is the one app to install: it runs the Bambu cloud bridge (what `addon/` did), the Bambu Studio slicer (`slicer/`)
+and the bridge build (`builder/`, now done in CI). Prebuilt images for aarch64 and amd64 are on ghcr.io, so nothing is built on the Pi.
 
-The bridge binary is not in git. To build it on the Pi:
+1. In Home Assistant: Settings, Apps, App store, menu, Repositories, add `https://github.com/marionebl/ha-bambu-sender`.
+2. Install "Bambu Hub" and start it. "Printers" appears in the sidebar: log in to your Bambu account(s) under "Bambu accounts", slice and print from the main page.
+3. The integration reaches the bridge API at `http://<app hostname>:8098` (see below).
 
-1. Copy `builder/` to `/addons/bambu_bridge_builder`. Install the "Bambu Bridge Builder" app and start it.
-   It clones boo-cloud v0.2.2, applies `builder/bridge.patch.xz` (camera, command route, device-cert retry, 64 MB print upload limit),
-   cross-compiles for x86_64 (about 20 minutes on a Pi 4) and copies the binary to `/share/bambu_build/boocloud-bridge`.
-2. Copy that file to `/addons/bambu_sender/boocloud-bridge-camera`, raise the version in `addon/config.yaml`,
-   and update the app.
+On amd64 the bridge and the Bambu plugin run natively, on aarch64 under `qemu-x86_64`.
+Ingress serves the slicer UI; the bridge page and API are proxied under `api/bridge/`. The bridge also answers on port 8098 inside the Home Assistant network, with the same routes as the old add-on.
+The app hostname is `<repository hash>-bambu-hub`. Supervisor derives the hash from the repository URL (`0990873a` for `https://github.com/marionebl/ha-bambu-sender`), and `ha apps info` or the Supervisor API (`/addons/<slug>/info`, field `hostname`) shows it.
 
-Tests for the add-on server: `cd test-server && pytest`.
+Tests: `hub/tests/image_test.sh` builds the image and checks it (bridge health, a test plate sliced through the API). CI runs it on both architectures (`.github/workflows/hub.yml`) and pushes `ghcr.io/marionebl/ha-bambu-hub-<arch>:<version>` from main. Raise `version` in `hub/config.yaml` with every change.
+
+## Old apps (deprecated)
+
+`addon/` (Bambu Sender), `builder/` (Bambu Bridge Builder) and `slicer/` (Bambu Slicer) are deprecated, replaced by Bambu Hub. They stay in the repository because the hub image is built from their sources; do not install them next to the hub (they would all want the same bridge login). Their old images and local install steps are no longer maintained.
+
+Tests for the bridge server: `cd test-server && pytest`.
