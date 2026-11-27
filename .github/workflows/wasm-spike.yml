@@ -23,7 +23,12 @@ jobs:
       - name: Fetch engine release, profile set and examples
         run: |
           node --version; uname -m; nproc
-          TAG=$(gh release list -R $ENGINE_REPO --exclude-pre-releases -L1 --json tagName -q '.[0].tagName')
+          gh release list -R $ENGINE_REPO -L 15
+          for t in $(gh release list -R $ENGINE_REPO --exclude-pre-releases -L 15 --json tagName -q '.[].tagName'); do
+            echo "== $t"; gh release view $t -R $ENGINE_REPO --json assets -q '.assets[]|"\(.size)\t\(.name)"'
+          done
+          TAG=$(gh release list -R $ENGINE_REPO --exclude-pre-releases -L 15 --json tagName -q '.[].tagName' | while read t; do
+            gh release view $t -R $ENGINE_REPO --json assets -q '.assets[].name' | grep -q runtime && echo $t && break; done)
           echo "engine release: $TAG"
           gh release view $TAG -R $ENGINE_REPO --json assets -q '.assets[]|"\(.size)\t\(.name)"'
           mkdir -p w/dl && cd w
