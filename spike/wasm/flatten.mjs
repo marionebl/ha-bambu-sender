@@ -60,8 +60,7 @@ const machine = pick('machine', WANT.machine);
 const process_ = pick('process', WANT.process);
 const filament = pick('filament', WANT.filament);
 console.log(`USED machine="${machine.name}" process="${process_.name}" filament="${filament.name}"`);
-for (const [k, o] of [['machine', machine], ['process', process_]]) {
-  if ('curr_bed_type' in o) { console.log(`curr_bed_type in ${k}: ${o.curr_bed_type} -> ${WANT.bed}`); o.curr_bed_type = WANT.bed; }
-}
-if (!('curr_bed_type' in machine) && !('curr_bed_type' in process_)) console.log('curr_bed_type not exposed by the presets');
+// curr_bed_type is not in the presets; the CLI default (Cool Plate) refuses PETG, so set it on both.
+machine.curr_bed_type = process_.curr_bed_type = WANT.bed;
+console.log(`curr_bed_type set to ${WANT.bed} (machine and process)`);
 fs.writeFileSync(out, JSON.stringify({ machine, process: process_, filaments: [filament] }));
