@@ -31,12 +31,12 @@ jobs:
           for f in dl/*.tgz; do d=x/$(basename $f .tgz); mkdir -p $d; tar -xzf $f -C $d; done
           git clone -q --depth 1 --branch $TAG https://github.com/$ENGINE_REPO.git engine-src
           find x -maxdepth 3 -name manifest.json
-          find x -maxdepth 4 -name 'index.*.json'
+          find x -maxdepth 6 -name 'index.*.json'
       - name: Locate runtime and profile set
         run: |
           cd w
           RT=$(dirname "$(find x -maxdepth 3 -name manifest.json | head -1)")
-          IDX=$(dirname "$(find x -maxdepth 4 -name 'index.*.json' | head -1)")
+          IDX=$(dirname "$(find x -maxdepth 6 -name 'index.*.json' | head -1)")
           echo "RT=$PWD/$RT" >> $GITHUB_ENV; echo "SET=$PWD/$IDX" >> $GITHUB_ENV
           ls -la $RT | grep -E 'engine-|manifest|host'
           grep -E '"version"' $RT/manifest.json | head -3
