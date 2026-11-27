@@ -24,3 +24,5 @@ jobs:
         run: python -m pytest slicer/tests
       - name: Add-on server
         run: cd test-server && python -m pytest
+      - name: Hub print queue
+        run: python -m pytest -p no:homeassistant -p no:socket hub/queue/tests
