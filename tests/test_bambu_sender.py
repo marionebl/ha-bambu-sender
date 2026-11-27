@@ -551,3 +551,59 @@ async def test_current_print_survives_restart(hass, hass_client, addon, media, b
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert await image_bytes(hass_client, IMAGE) == (200, PNG)
+
+
+# ---- current print image follows the printer's task name
+TASK_PNG = b"\x89PNG\r\n\x1a\nother-plate"
+
+
+def task_sensor(hass, state=None):
+    """Register ha-bambulab's task name sensor; optionally set its state."""
+    from homeassistant.helpers import entity_registry as er
+    ent = er.async_get(hass).async_get_or_create(
+        "sensor", "bambu_lab", f"{SERIAL}_subtask_name", suggested_object_id="my_h2s_task_name")
+    if state is not None:
+        hass.states.async_set(ent.entity_id, state)
+    return ent.entity_id
+
+
+async def sent_plate(hass, addon, media, bambu_device, task):
+    """Send plate.gcode.3mf, with a second file other.gcode.3mf in the media folder."""
+    (media / "bambu_sender" / "plate.gcode.3mf").write_bytes(make_3mf(png=PNG))
+    (media / "bambu_sender" / "sub" / "other.gcode.3mf").write_bytes(make_3mf(png=TASK_PNG))
+    task_sensor(hass, task)
+    await setup_entry(hass)
+    addon.post(f"{URL}/api/print", json={"result": "sent"})
+    await choose(hass, "plate.gcode.3mf")
+    await press(hass)
+    await hass.async_block_till_done()
+
+
+async def test_current_print_follows_task_name_to_other_file(hass, hass_client, addon, media, bambu_device):
+    await sent_plate(hass, addon, media, bambu_device, "other")
+    st = hass.states.get(IMAGE)
+    assert st.attributes["file_path"].endswith("sub/other.gcode.3mf") and st.attributes["has_preview"] is True
+    assert await image_bytes(hass_client, IMAGE) == (200, TASK_PNG)
+
+
+async def test_current_print_task_not_in_media_has_no_preview(hass, addon, media, bambu_device):
+    await sent_plate(hass, addon, media, bambu_device, "started_elsewhere")
+    st = hass.states.get(IMAGE)
+    assert st.attributes["file_path"] is None and st.attributes["has_preview"] is False
+
+
+async def test_current_print_task_matching_last_path_is_unchanged(hass, hass_client, addon, media, bambu_device):
+    await sent_plate(hass, addon, media, bambu_device, "plate")
+    assert hass.states.get(IMAGE).attributes["file_path"].endswith("bambu_sender/plate.gcode.3mf")
+    assert await image_bytes(hass_client, IMAGE) == (200, PNG)
+
+
+async def test_current_print_switches_when_task_changes(hass, hass_client, addon, media, bambu_device):
+    await sent_plate(hass, addon, media, bambu_device, "plate")
+    sensor = task_sensor(hass)
+    hass.states.async_set(sensor, "other")
+    await hass.async_block_till_done()
+    assert await image_bytes(hass_client, IMAGE) == (200, TASK_PNG)
+    hass.states.async_set(sensor, "unknown")  # no task info: back to the last sent file
+    await hass.async_block_till_done()
+    assert await image_bytes(hass_client, IMAGE) == (200, PNG)
