@@ -40,10 +40,14 @@ def make_routes(q, access=None, is_internal=lambda h: False):
                        b.get("filaments"), b.get("options"))
 
     def reorder(h, m, api):
-        pos = h.json().get("position")
+        b = h.json()  # the body can be read only once
+        pos = b.get("position")
         if not isinstance(pos, int):
             raise ValueError("position must be an integer")
-        return api.reorder(m.group(1), pos)
+        scope = b.get("scope")
+        if scope is not None and not isinstance(scope, str):
+            raise ValueError("scope must be a printer serial")
+        return api.reorder(m.group(1), pos, scope=scope)
 
     def move(h, m, api):
         b = h.json()

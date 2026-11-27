@@ -4,7 +4,7 @@ import os
 import tempfile
 import threading
 
-FIELDS = ("name", "model", "account", "prefix", "plate_type", "nozzle", "pause_entities")
+FIELDS = ("name", "model", "account", "prefix", "plate_type", "nozzle", "pause_entities", "electricity_kwh_price")
 
 
 def write_json(path, data):

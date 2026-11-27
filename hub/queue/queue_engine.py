@@ -109,15 +109,17 @@ class Queue:
             raise ValueError("unknown printer")
         return target
 
-    def reorder(self, job_id, position, owner=None):
+    def reorder(self, job_id, position, owner=None, scope=None):
         """position is 0-based among the waiting jobs, or among the owner's when owner is given.
-        The jobs are permuted within the slots they already hold, so nobody else moves."""
+        The jobs are permuted within the slots they already hold, so nobody else moves.
+        scope (a serial) narrows the pool to waiting jobs whose target or printer is that serial."""
         with self.lock:
             job = self._find(job_id)
             if job["state"] not in WAITING:
                 raise QueueError("only waiting jobs can be reordered")
             slots = [i for i, j in enumerate(self.jobs)
-                     if j["state"] in WAITING and (owner is None or j.get("owner_user_id") == owner)]
+                     if j["state"] in WAITING and (owner is None or j.get("owner_user_id") == owner)
+                     and (scope is None or scope in (j["target"], j.get("printer")))]
             pool = [self.jobs[i] for i in slots]
             if job not in pool:
                 raise QueueError("job is not in this reorder scope")

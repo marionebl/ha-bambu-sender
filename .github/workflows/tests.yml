@@ -26,3 +26,5 @@ jobs:
         run: cd test-server && python -m pytest
       - name: Hub print queue
         run: python -m pytest -p no:homeassistant -p no:socket hub/queue/tests
+      - name: Hub app
+        run: python -m pytest -p no:homeassistant -p no:socket hub/tests
