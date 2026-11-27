@@ -8,7 +8,7 @@ import zipfile
 from PIL import Image
 
 _spec = importlib.util.spec_from_file_location(
-    "preview", pathlib.Path(__file__).parent.parent / "custom_components/bambu_sender/preview.py"
+    "preview", pathlib.Path(__file__).parent.parent / "custom_components/druckwerk/preview.py"
 )
 preview = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(preview)

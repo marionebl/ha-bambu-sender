@@ -1,6 +1,6 @@
 """Multi-printer print queue. Home Assistant I/O is injected so tests can use fakes.
 
-get_state(entity_id) -> str | None          fresh ha-bambulab sensor state
+get_state(entity_id) -> str | None          fresh state of the vendor integration's sensor
 call_service(domain, service, data) -> any  raises on refusal; the message is kept on the job
 get_trays(serial) -> [{"type": "PLA", "colour": "#RRGGBB"}]   loaded AMS trays
 """
@@ -268,7 +268,7 @@ class Queue:
                 self.call_service("homeassistant", "turn_off", {"entity_id": e})
             o = job["options"]
             # force: the bridge status can be hours old; the fresh sensor was checked above.
-            self.call_service("bambu_sender", "print_file", {
+            self.call_service("druckwerk", "print_file", {
                 "serial": serial, "file": job["file"], "timelapse": o["timelapse"],
                 "bed_leveling": o["bed_leveling"], "use_ams": o["use_ams"], "force": True})
             return None

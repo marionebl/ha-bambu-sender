@@ -37,7 +37,7 @@ function shell() {
   main = h('main', { id: 'view' });
   clear(app,
     h('header', { class: 'topbar' }, h('div', { class: 'in' },
-      h('div', { class: 'brand' }, h('i'), 'Bambu Hub'), tabs,
+      h('div', { class: 'brand' }, h('i'), 'Druckwerk'), tabs,
       h('div', { class: 'who' }, h('span', { class: 'nm' }, ctx.me.name, ctx.isAdmin() ? ' · admin' : ''), ctx.isAdmin() && menu))),
     main);
 }

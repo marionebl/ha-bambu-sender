@@ -1,6 +1,6 @@
-"""Routes and background work of the Bambu Hub app (contract: hub/API.md).
+"""Routes and background work of the Druckwerk app (contract: hub/API.md).
 
-Mounted onto the slicer server (slicer/server.py) by hub.py: install() adds the routes, puts an identity check in front of
+Mounted onto the slicer server (hub/slicer/server.py) by hub.py: install() adds the routes, puts an identity check in front of
 every one of them and adds PUT/DELETE dispatch. Home Assistant I/O goes through the `ha` object (hub/ha.py; fakes in tests).
 """
 import collections
@@ -18,6 +18,7 @@ import time
 import zipfile
 from urllib.parse import parse_qs, urlsplit
 
+import externals
 import filament
 from ha import HAError
 from queue_access import Access, Forbidden, Grants, Unauthorized, caller_from_headers
@@ -28,7 +29,7 @@ HOP = {"connection", "keep-alive", "transfer-encoding", "content-length", "serve
 SECRET_HEADER = "X-Hub-Secret"
 IDENTITY_HEADERS = ("X-Remote-User-Id", "X-Remote-User-Name", "X-Remote-User-Display-Name")
 JOB_ID = r"([0-9a-f]{12})"
-# ha-bambulab sensor names after the printer prefix (verified against greghesp/ha-bambulab translations/en.json).
+# Sensor names of the vendor HA integration after the printer prefix (verified against its translations/en.json).
 SENSORS = {"status": "print_status", "stage": "current_stage", "progress": "print_progress",
            "remaining": "remaining_time", "end": "end_time", "layer": "current_layer", "total": "total_layer_count",
            "nozzle": "nozzle_temperature", "nozzle_t": "nozzle_target_temperature", "bed": "bed_temperature",
@@ -41,7 +42,7 @@ DOMAIN_DEFAULTS = "schedule,input_boolean,binary_sensor,person"
 
 
 def log(msg):
-    print("bambu-hub: " + msg, file=sys.stderr, flush=True)
+    print("druckwerk: " + msg, file=sys.stderr, flush=True)
 
 
 class HttpError(Exception):
@@ -159,7 +160,7 @@ class App:
 
     def suggested_prefix(self, serial):
         devices, entities = self.registries()
-        dev = next((d for d in devices if ["bambu_lab", serial] in [list(i) for i in d.get("identifiers", [])]), None)
+        dev = next((d for d in devices if [externals.HA_VENDOR_DOMAIN, serial] in [list(i) for i in d.get("identifiers", [])]), None)
         if not dev:
             return None
         main = next((e for e in entities if e.get("device_id") == dev["id"] and e.get("unique_id") == serial + "_print_status"), None)
@@ -174,7 +175,7 @@ class App:
         units = {}
         for e in entities:
             uid = e.get("unique_id") or ""
-            if e.get("platform") != "bambu_lab" or "_%s_AMS_" % serial not in uid:
+            if e.get("platform") != externals.HA_VENDOR_DOMAIN or "_%s_AMS_" % serial not in uid:
                 continue
             ams_serial, _, key = uid.split("_%s_AMS_" % serial, 1)[1].partition("_")
             u = units.setdefault(ams_serial, {"name": dev_name.get(e.get("device_id"), ""), "e": {}})
@@ -212,7 +213,7 @@ class App:
         _, entities = self.registries()
         rx = re.compile(r"_%s_ExternalSpool\w*_external_spool$" % re.escape(serial))
         for e in entities:
-            if e.get("platform") == "bambu_lab" and rx.search(e.get("unique_id") or ""):
+            if e.get("platform") == externals.HA_VENDOR_DOMAIN and rx.search(e.get("unique_id") or ""):
                 st = states.get(e["entity_id"])
                 if st and not st["attributes"].get("empty") and st["state"] not in ("unknown", "unavailable", "Empty"):
                     a = st["attributes"]
@@ -279,9 +280,9 @@ class App:
 
     def _call_service(self, domain, service, data):
         data = dict(data)
-        if (domain, service) == ("bambu_sender", "print_file") and not os.path.isabs(data["file"]):
+        if (domain, service) == ("druckwerk", "print_file") and not os.path.isabs(data["file"]):
             data["file"] = os.path.join(self.share, data["file"])
-        return self.ha.call_service(domain, service, data, response=(domain == "bambu_sender"))
+        return self.ha.call_service(domain, service, data, response=(domain == "druckwerk"))
 
     # -- printers --
     def entity(self, p, key):
@@ -401,7 +402,7 @@ class App:
 
     def discovery(self):
         """Supervisor discovery message that hands the integration host, ports and secret."""
-        return {"service": "bambu_sender", "config": {"host": self.hostname_fn(), "bridge_port": self.bridge[1],
+        return {"service": "druckwerk", "config": {"host": self.hostname_fn(), "bridge_port": self.bridge[1],
                                                        "hub_port": self.port, "secret": self.secret}}
 
     def tick_all(self):
@@ -507,7 +508,7 @@ class App:
         for d in listed:
             serial = d["serial"]
             cfg = self.registry.get(serial)
-            printers.append({"serial": serial, "bambu_name": d.get("name") or serial,
+            printers.append({"serial": serial, "device_name": d.get("name") or serial,
                              "model": d.get("dev_product_name") or d.get("dev_model_name") or "", "account": d.get("account"),
                              "configured": bool(cfg), "suggested_prefix": self.suggested_prefix(serial),
                              "config": self.config_view(cfg) if cfg else None})
@@ -536,14 +537,14 @@ class App:
         if not prefix:
             raise ValueError("ha_prefix is required")
         if "sensor.%s_print_status" % prefix not in self.ha.states(max_age=0):
-            raise ValueError("Home Assistant has no sensor.%s_print_status: check the ha-bambulab entity prefix" % prefix)
+            raise ValueError("Home Assistant has no sensor.%s_print_status: check the printer integration's entity prefix" % prefix)
         price = b.get("electricity_kwh_price", 0)
         if isinstance(price, bool) or not isinstance(price, (int, float)) or price < 0:
             raise ValueError("electricity_kwh_price must be a number >= 0")
         known = next((d for d in self.bridge_ok("GET", "/api/printers", timeout=20) if d["serial"] == serial), None)
         old = self.registry.get(serial)
         if not known and not old:
-            raise NotFound("the Bambu accounts have no printer with that serial")
+            raise NotFound("the logged-in accounts have no printer with that serial")
         model = (known and (known.get("dev_product_name") or known.get("dev_model_name"))) or old["model"]
         p = self.registry.put(serial, name=b.get("name"), model=model, account=known["account"] if known else old["account"],
                               prefix=prefix, plate_type=b.get("plate") or "", nozzle=b.get("nozzle") or "",

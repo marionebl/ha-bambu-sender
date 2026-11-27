@@ -24,7 +24,7 @@ dump("grants.json", [{"id": "a00000000001", "user_id": "u-user", "printer": H2S,
                      {"id": "a00000000002", "user_id": "u-user", "printer": P1S, "role": "user"}])
 spool = lambda i, t, c, n, left, price, pr, u, s: {"id": "5b%010d" % i, "brand": n.split()[0], "type": t, "colour": c, "name": n, "grams_left": left,
                                                     "grams_total": 1000, "price_per_kg": price, "printer": pr, "unit": u, "slot": s}
-dump("spools.json", [spool(1, "PLA", "F2F2F2", "Bambu PLA White", 880, 21.0, H2S, 0, 0), spool(2, "PETG", "1F6FEB", "Prusament PETG Blue", 610, 26.0, H2S, 0, 1),
+dump("spools.json", [spool(1, "PLA", "F2F2F2", "Acme PLA White", 880, 21.0, H2S, 0, 0), spool(2, "PETG", "1F6FEB", "Prusament PETG Blue", 610, 26.0, H2S, 0, 1),
                      spool(3, "PLA", "E4572E", "Sunlu PLA Red", 140, 15.0, H2S, 0, 2), spool(4, "TPU", "222222", "TPU 95A Black", 730, 30.0, H2S, 1, 0),
                      spool(5, "PLA", "2E2E2E", "Generic PLA Black", 950, 18.0, None, None, None)])
 job = lambda i, state, target, owner, name, age, **kw: dict({"id": "b%011d" % i, "file": name + ".gcode.3mf", "source": name + ".stl", "target": target,

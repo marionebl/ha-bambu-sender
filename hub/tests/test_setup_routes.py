@@ -10,7 +10,7 @@ def test_setup_lists_accounts_and_suggests_prefix_from_device_registry(hub):
     # The serial's device has an entity registered as sensor.lab_h2s_print_status: the prefix is read from it, not guessed.
     assert by[SERIAL]["suggested_prefix"] == "lab_h2s"
     assert by[SERIAL2]["suggested_prefix"] is None
-    assert by[SERIAL]["model"] == "H2S" and by[SERIAL]["bambu_name"] == "Lab" and by[SERIAL]["configured"] is False
+    assert by[SERIAL]["model"] == "H2S" and by[SERIAL]["device_name"] == "Lab" and by[SERIAL]["configured"] is False
 
 
 def test_suggested_prefix_falls_back_to_device_name(hub):
@@ -51,5 +51,5 @@ def test_integration_secret_and_discovery(hub):
     assert st == 200 and body["url"] == "http://hub-host:8099" and len(body["secret"]) >= 32
     assert body["secret"] == hub.app.secret
     d = hub.app.discovery()
-    assert d == {"service": "bambu_sender", "config": {"host": "hub-host", "bridge_port": hub.bridge.server_address[1],
+    assert d == {"service": "druckwerk", "config": {"host": "hub-host", "bridge_port": hub.bridge.server_address[1],
                                                        "hub_port": 8099, "secret": body["secret"]}}

@@ -1,6 +1,6 @@
 """Access control on top of the queue: Home Assistant accounts, per-printer grants.
 
-Identity comes from Supervisor ingress headers; Bambu logins never reach users. A grant is active
+Identity comes from Supervisor ingress headers; Cloud logins never reach users. A grant is active
 while `until` is in the future and its condition entity (any HA helper or binary_sensor) is "on",
 so HA decides schedules and presence, not this app.
 get_user(user_id) -> {"name": str, "is_admin": bool} | None

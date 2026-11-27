@@ -58,7 +58,7 @@ class Registry:
         return [dict(v, serial=k) for k, v in self.printers.items()]
 
     def entities(self, serial):
-        """ha-bambulab sensor ids for a printer, from its entity prefix."""
+        """vendor-integration sensor ids for a printer, from its entity prefix."""
         p = self.printers[serial]["prefix"]
         return {key: "sensor.%s_%s" % (p, key) for key in
                 ("print_status", "active_tray", "current_stage", "print_progress")}

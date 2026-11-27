@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mock of the Bambu Hub API for UI work. Serves hub/ui/ under a fake ingress prefix so that
+"""Mock of the Druckwerk API for UI work. Serves hub/ui/ under a fake ingress prefix so that
 absolute URLs (which break behind HA ingress) fail here too.
 
   python3 hub/ui/mock_server.py [port]      then open  http://127.0.0.1:8099/?as=admin|user|admin-new
@@ -44,7 +44,7 @@ PRINTERS = {
           "bed_temp": 59.6, "bed_target": 60, "chamber_temp": 38, "task_name": "Gridfinity bin 4x2",
           "active_tray": {"unit": 0, "slot": 1},
           "ams": [{"unit": 0, "humidity_index": 4, "temp": 27, "trays": [
-              tray(0, "PLA", "F2F2F2", "Bambu PLA White", 88, "s1"), tray(1, "PETG", "1F6FEB", "Prusament PETG Blue", 61, "s2"),
+              tray(0, "PLA", "F2F2F2", "Acme PLA White", 88, "s1"), tray(1, "PETG", "1F6FEB", "Prusament PETG Blue", 61, "s2"),
               tray(2, "PLA", "E4572E", "Sunlu PLA Red", 14, "s3"), tray(3, "", "", "", -1)]},
               {"unit": 1, "humidity_index": 2, "temp": 31, "trays": [tray(0, "TPU", "222222", "TPU 95A Black", 73, "s4")]}],
           "external": None, "hms": []},
@@ -60,7 +60,7 @@ PRINTERS = {
           "bed_temp": 21, "bed_target": 0, "chamber_temp": 21, "task_name": "", "active_tray": None, "ams": [],
           "external": {"type": "PLA", "colour": "3FB68B", "name": "Spool on holder"},
           "hms": [{"code": "0300-0100-0001-0007", "severity": "serious", "text": "The nozzle temperature is abnormal; the heater may be loose.",
-                   "url": "https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/0300_0100_0001_0007"}]},
+                   "url": "https://example.com/hms/0300_0100_0001_0007"}]},
 }
 T0 = {H2S: NOW() - 58 * 60}
 
@@ -89,7 +89,7 @@ HISTORY = [
     job("b00000000003", "lens_cap.gcode.3mf", P1S, "u-alex", "cancelled", age=70, finished_at=NOW() - 3600 * 70),
 ]
 SPOOLS = [
-    {"id": "s1", "brand": "Bambu", "type": "PLA", "colour": "F2F2F2", "name": "White", "grams_left": 880, "grams_total": 1000, "price_per_kg": 19.99, "printer": H2S, "unit": 0, "slot": 0},
+    {"id": "s1", "brand": "Acme", "type": "PLA", "colour": "F2F2F2", "name": "White", "grams_left": 880, "grams_total": 1000, "price_per_kg": 19.99, "printer": H2S, "unit": 0, "slot": 0},
     {"id": "s2", "brand": "Prusament", "type": "PETG", "colour": "1F6FEB", "name": "Blue", "grams_left": 610, "grams_total": 1000, "price_per_kg": 27.5, "printer": H2S, "unit": 0, "slot": 1},
     {"id": "s3", "brand": "Sunlu", "type": "PLA", "colour": "E4572E", "name": "Red", "grams_left": 140, "grams_total": 1000, "price_per_kg": 14.0, "printer": H2S, "unit": 0, "slot": 2},
     {"id": "s4", "brand": "Generic", "type": "TPU", "colour": "222222", "name": "Black 95A", "grams_left": 730, "grams_total": 1000, "price_per_kg": 32.0, "printer": H2S, "unit": 1, "slot": 0},
@@ -109,7 +109,7 @@ ENTITIES = [
     {"entity_id": "person.lena", "name": "Lena", "state": "home"},
 ]
 SETUP = {"accounts": [{"id": "acc1", "email": "owner@example.invalid", "logged_in": True, "daemon_running": True}],
-         "printers": {s: {"serial": s, "bambu_name": PRINTERS[s]["name"], "model": PRINTERS[s]["model"], "account": "acc1",
+         "printers": {s: {"serial": s, "device_name": PRINTERS[s]["name"], "model": PRINTERS[s]["model"], "account": "acc1",
                           "configured": s != X1C, "config": None, "suggested_prefix": {H2S: "h2s_fake0001", P1S: "p1s_fake0002"}.get(s)} for s in PRINTERS}}
 SLICES = {}
 LOCK = threading.Lock()
@@ -440,7 +440,7 @@ class H(BaseHTTPRequestHandler):
             doms = (q.get("domains") or [""])[0].split(",")
             return ok([e for e in ENTITIES if e["entity_id"].split(".")[0] in doms])
         if path == "api/integration":
-            return ok({"url": "http://local-bambu-hub:8099", "secret": "mock-secret-" + "0" * 20})
+            return ok({"url": "http://local-druckwerk:8099", "secret": "mock-secret-" + "0" * 20})
         if path == "api/setup" and m == "GET":
             return ok({"accounts": SETUP["accounts"], "printers": list(SETUP["printers"].values())})
         if path == "api/setup/login/start":

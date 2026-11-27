@@ -14,6 +14,8 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 for p in (os.environ.get("HUB_IMPL") or os.path.join(REPO, "hub"), os.path.join(REPO, "hub", "queue")):
     sys.path.insert(0, p)
 
+from externals import HA_VENDOR_DOMAIN as VENDOR  # noqa: E402
+
 SERIAL, SERIAL2 = "FAKE0001", "FAKE0002"
 ADMIN, USER, OTHER = "u-admin", "u-user", "u-other"
 USERS = [
@@ -22,13 +24,13 @@ USERS = [
     {"id": OTHER, "name": "Cy", "is_owner": False, "is_active": True, "system_generated": False, "group_ids": ["system-users"]},
     {"id": "sys", "name": "Supervisor", "is_owner": False, "is_active": True, "system_generated": True, "group_ids": []},
 ]
-DEVICES = [{"id": "dev1", "identifiers": [["bambu_lab", SERIAL]], "name": "h2s_" + SERIAL.lower(), "name_by_user": "Lab H2S", "model": "H2S"},
-           {"id": "ams1", "identifiers": [["bambu_lab", "AMSFAKE1"]], "name": "h2s_%s_AMS_1" % SERIAL.lower(), "model": "AMS 2 Pro"}]
+DEVICES = [{"id": "dev1", "identifiers": [[VENDOR, SERIAL]], "name": "h2s_" + SERIAL.lower(), "name_by_user": "Lab H2S", "model": "H2S"},
+           {"id": "ams1", "identifiers": [[VENDOR, "AMSFAKE1"]], "name": "h2s_%s_AMS_1" % SERIAL.lower(), "model": "AMS 2 Pro"}]
 ENTITIES = [
-    {"entity_id": "sensor.lab_h2s_print_status", "device_id": "dev1", "platform": "bambu_lab", "unique_id": SERIAL + "_print_status"},
-    {"entity_id": "sensor.ams_tray_1", "device_id": "ams1", "platform": "bambu_lab", "unique_id": "H2S_%s_AMS_AMSFAKE1_tray_1" % SERIAL},
-    {"entity_id": "sensor.ams_tray_2", "device_id": "ams1", "platform": "bambu_lab", "unique_id": "H2S_%s_AMS_AMSFAKE1_tray_2" % SERIAL},
-    {"entity_id": "sensor.ams_humidity", "device_id": "ams1", "platform": "bambu_lab", "unique_id": "H2S_%s_AMS_AMSFAKE1_humidity_index" % SERIAL},
+    {"entity_id": "sensor.lab_h2s_print_status", "device_id": "dev1", "platform": VENDOR, "unique_id": SERIAL + "_print_status"},
+    {"entity_id": "sensor.ams_tray_1", "device_id": "ams1", "platform": VENDOR, "unique_id": "H2S_%s_AMS_AMSFAKE1_tray_1" % SERIAL},
+    {"entity_id": "sensor.ams_tray_2", "device_id": "ams1", "platform": VENDOR, "unique_id": "H2S_%s_AMS_AMSFAKE1_tray_2" % SERIAL},
+    {"entity_id": "sensor.ams_humidity", "device_id": "ams1", "platform": VENDOR, "unique_id": "H2S_%s_AMS_AMSFAKE1_humidity_index" % SERIAL},
 ]
 SLICE_INFO = open(os.path.join(HERE, "fixtures", "slice_info.config")).read()
 
@@ -133,7 +135,7 @@ class FakeBridge(BaseHTTPRequestHandler):
 
 class Hub:
     def __init__(self, tmp_path):
-        spec = importlib.util.spec_from_file_location("slicer_server", os.path.join(REPO, "slicer", "server.py"))
+        spec = importlib.util.spec_from_file_location("slicer_server", os.path.join(REPO, "hub", "slicer", "server.py"))
         self.s = importlib.util.module_from_spec(spec)
         sys.modules["slicer_server"] = self.s
         spec.loader.exec_module(self.s)

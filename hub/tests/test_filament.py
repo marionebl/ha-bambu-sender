@@ -8,7 +8,7 @@ from hubfakes import ADMIN, OTHER, SERIAL, SERIAL2, USER, make_3mf
 
 
 def test_grams_from_a_real_sliced_3mf(tmp_path):
-    # fixtures/slice_info.config is the file Bambu Studio 2.9.2 wrote for tools/bambu-studio/test/test_plate_v3.1.stl.
+    # fixtures/slice_info.config is the file the slicer 2.9.2 wrote for fixtures/test_plate.stl.
     use = filament.slice_usage(make_3mf(tmp_path / "s.gcode.3mf"))
     assert use == {"seconds": 7440, "grams": 75.22, "filaments": [{"type": "PETG", "colour": "ADB1B2", "grams": 75.22}]}
 

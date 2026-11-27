@@ -1,0 +1,19 @@
+{
+  "domain": "druckwerk",
+  "name": "Druckwerk",
+  "version": "0.10.0",
+  "documentation": "https://github.com/marionebl/druckwerk",
+  "config_flow": true,
+  "iot_class": "local_polling",
+  "after_dependencies": [
+    "bambu_lab"
+  ],
+  "dependencies": [
+    "http"
+  ],
+  "requirements": [],
+  "codeowners": [
+    "@marionebl"
+  ],
+  "issue_tracker": "https://github.com/marionebl/druckwerk/issues"
+}

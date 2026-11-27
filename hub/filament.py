@@ -9,7 +9,7 @@ import zipfile
 
 from queue_registry import write_json
 
-# Average printing watts, PLA column of the Bambu wiki "Supply voltage" page (wiki.bambulab.com/en/general/power-consumption);
+# Average printing watts, PLA column of the vendor wiki's "Supply voltage" page;
 # H2S has no published figure, 150 is our assumption between A1 (95) and H2D (197).
 WATTS = {"H2S": 150, "X1C": 105, "X1": 105, "X1E": 105, "P1S": 105, "P1P": 110, "A1": 95, "A1 MINI": 80}
 DEFAULT_WATTS = 105

@@ -1,18 +1,18 @@
-name: Bambu Hub
-version: "1.2.0"
-slug: bambu_hub
+name: Druckwerk
+version: "2.0.0"
+slug: druckwerk
 # Built and pushed by .github/workflows/hub.yml on main; HA pulls <image>:<version>.
-image: ghcr.io/marionebl/ha-bambu-hub-{arch}
-description: Bambu cloud bridge, Bambu Studio slicer and print sender in one app, through Home Assistant ingress
+image: ghcr.io/marionebl/druckwerk-{arch}
+description: Cloud print bridge, slicer and print queue for 3D printers in one app, through Home Assistant ingress
 arch: [aarch64, amd64]
 startup: application
 boot: auto
 init: false
-discovery: [bambu_sender]
+discovery: [druckwerk]
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:printer-3d
-panel_title: Printers
+panel_title: Druckwerk
 homeassistant_api: true
 hassio_api: true
 map: ["share:rw"]

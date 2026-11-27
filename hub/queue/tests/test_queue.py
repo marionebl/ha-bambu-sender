@@ -50,7 +50,7 @@ def test_requires_plate_clear(make):
 def test_guard_refusal_keeps_job_first_with_error(make, fake):
     first = make.add(F, target="S1")
     make.add("b.gcode.3mf", target="S1")
-    fake.fail[("bambu_sender", "print_file")] = "G-code guard: no filament"
+    fake.fail[("druckwerk", "print_file")] = "G-code guard: no filament"
     with pytest.raises(QueueError, match="G-code guard"):
         make.start("S1", plate_clear=True)
     assert make.jobs[0]["id"] == first["id"]
@@ -60,7 +60,7 @@ def test_guard_refusal_keeps_job_first_with_error(make, fake):
 
 def test_pause_entities_reenabled_after_failed_send(make, fake):
     make.add(F, target="S1")
-    fake.fail[("bambu_sender", "print_file")] = "boom"
+    fake.fail[("druckwerk", "print_file")] = "boom"
     with pytest.raises(QueueError):
         make.start("S1", plate_clear=True)
     assert fake.states["automation.snap"] == "on"

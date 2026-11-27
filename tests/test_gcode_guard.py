@@ -1,9 +1,10 @@
 import io
 import zipfile
 
-from custom_components.bambu_sender.gcode_guard import check_gcode_3mf
+from custom_components.druckwerk.externals import EXAMPLE_GCODE_MODEL as MODEL_H2S
+from custom_components.druckwerk.gcode_guard import check_gcode_3mf
 
-HEAD = "; printer_model = Bambu Lab H2S\n; EXECUTABLE_BLOCK_START\n"
+HEAD = f"; printer_model = {MODEL_H2S}\n; EXECUTABLE_BLOCK_START\n"
 LOAD = "M1002 gcode_claim_action : 4\nM620 S0A\nT0\nM621 S0A\n"
 
 
@@ -40,7 +41,7 @@ def test_retraction_and_comments_are_not_extrusion(tmp_path):
 
 
 def test_model_names_and_not_a_3mf(tmp_path):
-    assert check(tmp_path, LOAD + "M104 S200\nG1 E5\n", model="Bambu Lab H2S") == []
+    assert check(tmp_path, LOAD + "M104 S200\nG1 E5\n", model=MODEL_H2S) == []
     assert "P1S" in check(tmp_path, LOAD + "M104 S200\nG1 E5\n", model="P1S")[0]
     bad = tmp_path / "n.gcode.3mf"
     bad.write_bytes(b"nope")

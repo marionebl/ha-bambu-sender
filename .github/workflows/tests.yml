@@ -20,11 +20,11 @@ jobs:
       - run: pip install -r requirements-test.txt
       - name: HA integration
         run: python -m pytest tests
-      - name: Slicer app API
-        run: python -m pytest slicer/tests
-      - name: Add-on server
-        run: cd test-server && python -m pytest
-      - name: Hub print queue
+      - name: Slicer server
+        run: python -m pytest hub/slicer
+      - name: Bridge server and plugin download
+        run: cd hub/bridge/tests && python -m pytest
+      - name: Print queue
         run: python -m pytest -p no:homeassistant -p no:socket hub/queue/tests
-      - name: Hub app
+      - name: App backend
         run: python -m pytest -p no:homeassistant -p no:socket hub/tests

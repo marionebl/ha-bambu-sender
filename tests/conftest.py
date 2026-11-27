@@ -14,19 +14,26 @@ _ours = str(pathlib.Path(__file__).parents[1] / "custom_components")
 if _ours not in list(custom_components.__path__):
     custom_components.__path__.append(_ours)
 
-URL = "http://local-bambu-sender:8098"
+from custom_components.druckwerk.externals import (  # noqa: E402
+    EXAMPLE_GCODE_MODEL as MODEL_H2S,
+    VENDOR_DOMAIN,
+    VENDOR_MANUFACTURER,
+)
+
+MODEL_P1S = MODEL_H2S.replace("H2S", "P1S")
+URL = "http://local-druckwerk:8098"
 SERIAL = "0000TEST0000001"
 PRINTER = {
     "serial": SERIAL, "name": "H2S", "dev_product_name": "H2S", "dev_model_name": "O1S",
     "online": True, "print_status": "IDLE", "account": "a1", "email": "me@example.com", "live": {"cached": True},
 }
 HEALTH = {"server": "ok", "accounts": []}
-HUB_URL = "http://local-bambu-sender:8099"
+HUB_URL = "http://local-druckwerk:8099"
 HUB_SECRET = "s" * 32
 
 
-def make_3mf(model="Bambu Lab H2S", ams=True, claims=True, png=None):
-    """Tiny .gcode.3mf; ams=False/claims=False make it look like a generic (non-Bambu) start G-code."""
+def make_3mf(model=MODEL_H2S, ams=True, claims=True, png=None):
+    """Tiny .gcode.3mf; ams=False/claims=False make it look like a generic (unsupported) start G-code."""
     start = ["M1002 gcode_claim_action : 4"] if claims else []
     start += ["M104 S140"]
     if ams:
@@ -53,9 +60,9 @@ def _custom(enable_custom_integrations):
 
 @pytest.fixture
 def media(hass, tmp_path):
-    """Temp media root with a bambu_sender folder holding two files."""
+    """Temp media root with a druckwerk folder holding two files."""
     hass.config.media_dirs = {"local": str(tmp_path)}
-    base = tmp_path / "bambu_sender"
+    base = tmp_path / "druckwerk"
     (base / "sub").mkdir(parents=True)
     (base / "benchy.gcode.3mf").write_bytes(GOOD)
     (base / "sub" / "cube.gcode.3mf").write_bytes(GOOD)
@@ -77,19 +84,19 @@ def addon(aioclient_mock):
 
 
 @pytest.fixture
-def bambu_device(hass):
-    """The device ha-bambulab would have registered."""
-    entry = MockConfigEntry(domain="bambu_lab")
+def vendor_device(hass):
+    """The device the vendor integration would have registered."""
+    entry = MockConfigEntry(domain=VENDOR_DOMAIN)
     entry.add_to_hass(hass)
     from homeassistant.helpers import device_registry as dr
     return dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id, identifiers={("bambu_lab", SERIAL)},
-        name="My H2S", manufacturer="Bambu Lab", model="H2S",
+        config_entry_id=entry.entry_id, identifiers={(VENDOR_DOMAIN, SERIAL)},
+        name="My H2S", manufacturer=VENDOR_MANUFACTURER, model="H2S",
     )
 
 
 async def setup_entry(hass):
-    entry = MockConfigEntry(domain="bambu_sender", data={"url": URL}, unique_id="bambu_sender")
+    entry = MockConfigEntry(domain="druckwerk", data={"url": URL}, unique_id="druckwerk")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

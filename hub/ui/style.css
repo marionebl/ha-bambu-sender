@@ -1,4 +1,4 @@
-/* Bambu Hub: one accent, system fonts, light and dark. */
+/* Druckwerk: one accent, system fonts, light and dark. */
 :root {
   --bg: #f4f5f7; --card: #fff; --fg: #1a1d21; --muted: #667085; --line: #e4e7ec; --soft: #f2f4f7;
   --accent: #008c3a; --accent-fg: #fff; --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);

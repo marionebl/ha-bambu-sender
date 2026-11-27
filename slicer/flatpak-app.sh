@@ -1,1 +1,0 @@
-../tools/bambu-studio/flatpak/flatpak-app.sh

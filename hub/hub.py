@@ -16,7 +16,7 @@ from app import App, log
 from ha import HA
 
 env = os.environ.get
-BRIDGE = ("127.0.0.1", int(env("BAMBU_PORT", "8098")))
+BRIDGE = ("127.0.0.1", int(env("DW_PORT", "8098")))
 SUPERVISOR = env("HUB_SUPERVISOR_URL", "http://supervisor")
 
 

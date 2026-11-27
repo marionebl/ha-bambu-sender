@@ -1,12 +1,12 @@
-# Bambu Hub API (ingress port)
+# Druckwerk API (ingress port)
 
-Contract between the app backend (`hub/`), the web UI (`hub/ui/`) and the `bambu_sender` integration.
+Contract between the app backend (`hub/`), the web UI (`hub/ui/`) and the `druckwerk` integration.
 Paths are relative to the ingress root. All bodies are JSON. Errors: `{"error": "<text>"}` with 400, 401, 403 (text starts `rule:`), 404, 409, 502.
 
 Identity comes from the Supervisor ingress headers `X-Remote-User-Id`, `X-Remote-User-Name`, `X-Remote-User-Display-Name`.
 Calls from the integration go to `http://<app hostname>:8099` without ingress and carry `X-Hub-Secret`; they are internal (admin everywhere).
 The app only trusts the identity headers from the Supervisor ingress gateway (172.30.32.2, env `HUB_INGRESS_IPS`); every route except the web UI's own files (`GET /`, `/index.html`, `/style.css`, `/app.js`, `/api.js`, `/util.js`, `/views/*.js`, served from hub/ui) answers 401 without an identity or the secret.
-The secret reaches the integration through Supervisor discovery: on start the app POSTs `{service: "bambu_sender", config: {host: <own hostname>, bridge_port: 8098, hub_port: 8099, secret}}` to `http://supervisor/discovery` (retried every 30 s until it works). `GET /api/integration` shows the same data to HA admins as the fallback.
+The secret reaches the integration through Supervisor discovery: on start the app POSTs `{service: "druckwerk", config: {host: <own hostname>, bridge_port: 8098, hub_port: 8099, secret}}` to `http://supervisor/discovery` (retried every 30 s until it works). `GET /api/integration` shows the same data to HA admins as the fallback.
 
 ## Me
 
@@ -14,8 +14,8 @@ The secret reaches the integration through Supervisor discovery: on start the ap
 
 ## Setup (HA admins only)
 
-- `GET /api/setup` → `{accounts: [{id, email, logged_in, daemon_running}], printers: [{serial, bambu_name, model, account, configured, suggested_prefix}]}`
-  `suggested_prefix` is the ha-bambulab entity prefix for that serial: the device whose identifiers contain the serial, then the entity registry's `<serial>_print_status` entity minus `sensor.` and `_print_status`; falls back to the slug of the device name; null if HA has no such device.
+- `GET /api/setup` → `{accounts: [{id, email, logged_in, daemon_running}], printers: [{serial, device_name, model, account, configured, suggested_prefix}]}`
+  `suggested_prefix` is the printer integration's entity prefix for that serial: the device whose identifiers contain the serial, then the entity registry's `<serial>_print_status` entity minus `sensor.` and `_print_status`; falls back to the slug of the device name; null if HA has no such device.
   `config` is added to each printer: `null`, or the saved printer (shape of the `PUT` answer) for editing.
 - `POST /api/setup/login/start` `{email, password}` → `{state: "done"|"need_code"|"need_tfa", account}`
 - `POST /api/setup/login/code` `{email, code}` → same
@@ -35,8 +35,8 @@ The secret reaches the integration through Supervisor discovery: on start the ap
   external: {type, colour, name} | null,
   hms: [{code, severity: "fatal"|"serious"|"common"|"info", text, url}],
   current_job: job | null, queue_length}]`
-  Values come from ha-bambulab entities, bridge status as fallback when a printer has no `print_status` entity. `progress` is a number 0..100, `remaining_min` whole minutes, temps numbers; unavailable values are null.
-  `active_tray` and tray `slot` are 0-based, `unit` is the AMS number (0 = "AMS 1"); trays and humidity come from the AMS devices in the entity registry. `humidity_index` is ha-bambulab's 1 (dry) .. 5 (wet). Empty slots have `type: ""`. `spool_id` is the spool assigned to that tray, or null. `camera_url` and `cover_url` are ingress-relative.
+  Values come from the printer integration's entities, bridge status as fallback when a printer has no `print_status` entity. `progress` is a number 0..100, `remaining_min` whole minutes, temps numbers; unavailable values are null.
+  `active_tray` and tray `slot` are 0-based, `unit` is the AMS number (0 = "AMS 1"); trays and humidity come from the AMS devices in the entity registry. `humidity_index` is the printer integration's 1 (dry) .. 5 (wet). Empty slots have `type: ""`. `spool_id` is the spool assigned to that tray, or null. `camera_url` and `cover_url` are ingress-relative.
 - `GET /api/printers/{serial}/camera` → MJPEG stream of the cloud camera (bridge `/api/camera/{serial}/live`, query string passed on); with `?mode=snapshot` one JPEG (`/snapshot`). Needs any active grant on the printer.
 - `GET /api/printers/{serial}/cover` → the print's cover image (HA `image.<prefix>_cover_image`). Needs any active grant.
 - `POST /api/printers/{serial}/start-next` `{plate_clear: true}`; `POST /api/printers/{serial}/start` `{job_id, plate_clear: true}` (admin of printer).

@@ -1,10 +1,10 @@
 name: Hub app
 on:
   push:
-    branches: [main, hub-app]
-    paths: [hub/**, addon/**, builder/**, slicer/**, tools/bambu-studio/**, .github/workflows/hub.yml]
+    branches: [main, druckwerk]  # druckwerk: temporary, to run the image checks before the first merge
+    paths: [hub/**, .github/workflows/hub.yml]
   pull_request:
-    paths: [hub/**, addon/**, builder/**, slicer/**, tools/bambu-studio/**, .github/workflows/hub.yml]
+    paths: [hub/**, .github/workflows/hub.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Unit tests (fake slicer)
-        run: pip install -q pytest && python3 -m pytest -q slicer/tests
-      - name: Build the app image, then smoke-test bridge and slicer
+        run: pip install -q pytest && python3 -m pytest -q hub/slicer
+      - name: Build the app image, then check it (no vendor libs, plugin download at start, bridge, slicer)
         run: |
           V=$(sed -n 's/^version: "\(.*\)"/\1/p' hub/config.yaml)
           BUILD_ARGS="--build-arg VERSION=$V --build-arg HASS_ARCH=${{ matrix.arch }}" hub/tests/image_test.sh
@@ -34,7 +34,7 @@ jobs:
           git fetch -q --depth 1 origin "$GITHUB_BASE_REF"
           old=$(git show FETCH_HEAD:hub/config.yaml 2>/dev/null | sed -n 's/^version: //p')
           new=$(sed -n 's/^version: //p' hub/config.yaml)
-          if ! git diff --quiet FETCH_HEAD -- hub addon builder slicer tools/bambu-studio && [ "$old" = "$new" ]; then
+          if ! git diff --quiet FETCH_HEAD -- hub && [ "$old" = "$new" ]; then
             echo "::error::The app changed but its version ($new) did not; HA would not offer the update"; exit 1
           fi
       - name: Push to ghcr.io
@@ -43,8 +43,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=$(sed -n 's/^version: "\(.*\)"/\1/p' hub/config.yaml)
-          IMG=ghcr.io/${{ github.repository_owner }}/ha-bambu-hub-${{ matrix.arch }}
+          IMG=ghcr.io/${{ github.repository_owner }}/druckwerk-${{ matrix.arch }}
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker tag bambu-hub-test "$IMG:$V"
+          docker tag druckwerk-test "$IMG:$V"
           docker push -q "$IMG:$V"
           echo "pushed $IMG:$V"

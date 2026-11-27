@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fake Bambu bridge, Supervisor and Home Assistant for the image end-to-end test (hub/tests/ui_e2e.sh).
+"""Fake bridge, Supervisor and Home Assistant for the image end-to-end test (hub/tests/ui_e2e.sh).
 
   python3 e2e_mock.py HTTP_PORT WS_PORT
 HTTP_PORT: bridge API (/api/...), HA core REST (/core/...), Supervisor (/supervisor/...). WS_PORT: HA websocket.
@@ -13,6 +13,10 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from externals import HA_VENDOR_DOMAIN as VENDOR  # noqa: E402
+
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 H2S, P1S, X1C = "FAKE-H2S-0001", "FAKE-P1S-0002", "FAKE-X1C-0003"
 PREFIX = {H2S: "h2s_fake0001", P1S: "p1s_fake0002", X1C: "x1c_fake0003"}
@@ -21,7 +25,7 @@ NAMES = {H2S: ("Workshop H2S", "H2S"), P1S: ("Office P1S", "P1S"), X1C: ("Garage
 JPEG = base64.b64decode("/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////"
                         "wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=")
 # (type, colour, name, remain %, bridge tray_info_idx); None = empty slot
-UNITS = [[("PLA", "F2F2F2", "Bambu PLA White", 88, "GFA00"), ("PETG", "1F6FEB", "Prusament PETG Blue", 61, "GFG02"),
+UNITS = [[("PLA", "F2F2F2", "Acme PLA White", 88, "GFA00"), ("PETG", "1F6FEB", "Prusament PETG Blue", 61, "GFG02"),
           ("PLA", "E4572E", "Sunlu PLA Red", 14, "GFA00"), None],
          [("TPU", "222222", "TPU 95A Black", 73, "GFU01")]]
 P1S_TRAYS = [("PLA", "2E2E2E", "Generic PLA Black", 95, "GFA00"), ("PLA", "F2C94C", "Generic PLA Yellow", 40, "GFA00"), None, None]
@@ -76,16 +80,16 @@ def build_states():
 def build_registries():
     devices, entities = [], []
     for serial, p in PREFIX.items():
-        devices.append({"id": "dev-" + p, "identifiers": [["bambu_lab", serial]], "name": "%s_%s" % (NAMES[serial][1].lower(), serial.lower()),
+        devices.append({"id": "dev-" + p, "identifiers": [[VENDOR, serial]], "name": "%s_%s" % (NAMES[serial][1].lower(), serial.lower()),
                         "name_by_user": NAMES[serial][0], "model": NAMES[serial][1]})
-        entities.append({"entity_id": "sensor.%s_print_status" % p, "device_id": "dev-" + p, "platform": "bambu_lab", "unique_id": serial + "_print_status"})
+        entities.append({"entity_id": "sensor.%s_print_status" % p, "device_id": "dev-" + p, "platform": VENDOR, "unique_id": serial + "_print_status"})
     for serial, prefix, units in ((H2S, "h2s", UNITS), (P1S, "p1s", [P1S_TRAYS])):
         for u, trays in enumerate(units):
             dev = "dev-%s-ams%d" % (prefix, u + 1)
-            devices.append({"id": dev, "identifiers": [["bambu_lab", "%sAMS%d" % (prefix.upper(), u + 1)]], "model": "AMS",
+            devices.append({"id": dev, "identifiers": [[VENDOR, "%sAMS%d" % (prefix.upper(), u + 1)]], "model": "AMS",
                             "name": "%s_%s_AMS_%d" % (prefix, serial.lower(), u + 1)})
             for key in ["tray_%d" % n for n in range(1, len(trays) + 1)] + (["humidity_index", "temperature"] if prefix == "h2s" else []):
-                entities.append({"entity_id": "sensor.%s_ams%d_%s" % (prefix, u + 1, key), "device_id": dev, "platform": "bambu_lab",
+                entities.append({"entity_id": "sensor.%s_ams%d_%s" % (prefix, u + 1, key), "device_id": dev, "platform": VENDOR,
                                  "unique_id": "%s_%s_AMS_%sAMS%d_%s" % (prefix.upper(), serial, prefix.upper(), u + 1, key)})
     return devices, entities
 

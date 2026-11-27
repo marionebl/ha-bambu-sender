@@ -1,0 +1,133 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Druckwerk bridge",
+        "description": "Address of the Druckwerk bridge API.",
+        "data": {
+          "url": "Add-on URL"
+        }
+      },
+      "hassio_confirm": {
+        "title": "Druckwerk app",
+        "description": "Set up Druckwerk with the Druckwerk app that Home Assistant found?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the add-on at this URL."
+    },
+    "abort": {
+      "already_configured": "Druckwerk is already set up.",
+      "single_instance_allowed": "Druckwerk is already set up."
+    }
+  },
+  "entity": {
+    "select": {
+      "print_file": {
+        "name": "Print file"
+      }
+    },
+    "switch": {
+      "timelapse": {
+        "name": "Print timelapse"
+      },
+      "bed_leveling": {
+        "name": "Print bed leveling"
+      }
+    },
+    "button": {
+      "start_print": {
+        "name": "Start cloud print"
+      },
+      "reread_slot": {
+        "name": "Re-read slot {slot}"
+      }
+    },
+    "sensor": {
+      "cloud_sender": {
+        "name": "Cloud sender",
+        "state": {
+          "idle": "Idle",
+          "sent": "Sent",
+          "error": "Error"
+        }
+      }
+    },
+    "camera": {
+      "cloud_camera": {
+        "name": "Cloud camera"
+      }
+    },
+    "image": {
+      "current_print": {
+        "name": "Current print"
+      }
+    },
+    "light": {
+      "chamber_light": {
+        "name": "Chamber light (cloud)"
+      }
+    },
+    "todo": {
+      "queue": {
+        "name": "Queue"
+      }
+    }
+  },
+  "services": {
+    "print_file": {
+      "name": "Print file",
+      "description": "Sends a .gcode.3mf file to a printer as a cloud print through the add-on.",
+      "fields": {
+        "device_id": {
+          "name": "Printer",
+          "description": "Printer device, as registered by the printer integration."
+        },
+        "serial": {
+          "name": "Serial",
+          "description": "Printer serial number, used when no device is given."
+        },
+        "file": {
+          "name": "File",
+          "description": "Path relative to /media/druckwerk, or an absolute path under /media or /share."
+        },
+        "timelapse": {
+          "name": "Timelapse",
+          "description": "Record a timelapse."
+        },
+        "bed_leveling": {
+          "name": "Bed leveling",
+          "description": "Level the bed before printing."
+        },
+        "use_ams": {
+          "name": "Use AMS",
+          "description": "Use the AMS filament mapping."
+        },
+        "force": {
+          "name": "Force",
+          "description": "Send even if the printer is running or paused."
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Druckwerk",
+        "description": "Upload secret: agents upload sliced files with PUT /api/druckwerk/upload/<name>.gcode.3mf and the header X-Druckwerk-Secret (empty turns uploads off). Hub secret: normally set by app discovery; paste it here otherwise (empty keeps the current one). Recipients: YAML map of person entity to notify service, e.g. person.anna: notify.mobile_app_anna; they are notified only while at home.",
+        "data": {
+          "upload_secret": "Upload secret (at least 24 characters)",
+          "url": "Bridge URL (manual override)",
+          "hub_url": "Hub URL (manual override)",
+          "hub_secret": "Hub secret",
+          "recipients": "Notification recipients"
+        }
+      }
+    },
+    "error": {
+      "secret_too_short": "Use at least 24 characters.",
+      "invalid_hub_secret": "The hub rejected this secret or is not reachable.",
+      "bad_recipients": "Use person.<name>: notify.<service> pairs."
+    }
+  }
+}

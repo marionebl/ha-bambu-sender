@@ -74,4 +74,4 @@ def test_start_needs_plate_clear_and_printer_admin(hub):
     assert st == 200 and job["state"] == "starting"
     domain, service, data = hub.ha.calls[-1]
     # The queue holds a bare name; the integration needs the path inside /share.
-    assert (domain, service, data["file"], data["force"]) == ("bambu_sender", "print_file", os.path.join(hub.s.SHARE, "a.gcode.3mf"), True)
+    assert (domain, service, data["file"], data["force"]) == ("druckwerk", "print_file", os.path.join(hub.s.SHARE, "a.gcode.3mf"), True)
