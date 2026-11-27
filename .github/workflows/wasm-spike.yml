@@ -23,16 +23,10 @@ jobs:
       - name: Fetch engine release, profile set and examples
         run: |
           node --version; uname -m; nproc
-          gh release list -R $ENGINE_REPO -L 15
-          for t in $(gh release list -R $ENGINE_REPO --exclude-pre-releases -L 15 --json tagName -q '.[].tagName'); do
-            echo "== $t"; gh release view $t -R $ENGINE_REPO --json assets -q '.assets[]|"\(.size)\t\(.name)"'
-          done
-          TAG=$(gh release list -R $ENGINE_REPO --exclude-pre-releases -L 15 --json tagName -q '.[].tagName' | while read t; do
-            gh release view $t -R $ENGINE_REPO --json assets -q '.assets[].name' | grep -q runtime && echo $t && break; done)
+          TAG=v0.6.0-m1.9  # the release marked Latest; the p1 tag after it is profiles only
           echo "engine release: $TAG"
-          gh release view $TAG -R $ENGINE_REPO --json assets -q '.assets[]|"\(.size)\t\(.name)"'
           mkdir -p w/dl && cd w
-          gh release download $TAG -R $ENGINE_REPO -D dl -p '*.tgz'
+          gh release download $TAG -R $ENGINE_REPO -D dl -p "muon3d-slicer-engine-${TAG#v}.tgz" -p "muon3d-slicer-profiles-${TAG#v}.tgz"
           ls -la dl
           for f in dl/*.tgz; do d=x/$(basename $f .tgz); mkdir -p $d; tar -xzf $f -C $d; done
           git clone -q --depth 1 --branch $TAG https://github.com/$ENGINE_REPO.git engine-src
