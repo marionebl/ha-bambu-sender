@@ -553,6 +553,26 @@ async def test_current_print_survives_restart(hass, hass_client, addon, media, b
     assert await image_bytes(hass_client, IMAGE) == (200, PNG)
 
 
+async def test_slow_preview_does_not_block_setup(hass, hass_client, addon, media, bambu_device, monkeypatch):
+    import asyncio
+    import threading
+    from pytest_homeassistant_custom_component.common import mock_restore_cache
+    from homeassistant.core import State
+    from custom_components.bambu_sender import api
+
+    plate = media / "bambu_sender" / "plate.gcode.3mf"
+    plate.write_bytes(make_3mf(png=PNG))
+    entry = await setup_entry(hass)
+    await hass.config_entries.async_unload(entry.entry_id)
+    gate, real = threading.Event(), api.plate_png
+    monkeypatch.setattr(api, "plate_png", lambda path: (gate.wait(30), real(path))[1])
+    mock_restore_cache(hass, [State(IMAGE, "2026-11-23T10:00:00+00:00", {"file_path": str(plate)})])
+    await asyncio.wait_for(hass.config_entries.async_setup(entry.entry_id), 5)  # a blocked setup times out here
+    gate.set()
+    await hass.async_block_till_done()
+    assert await image_bytes(hass_client, IMAGE) == (200, PNG)
+
+
 # ---- current print image follows the printer's task name
 TASK_PNG = b"\x89PNG\r\n\x1a\nother-plate"
 

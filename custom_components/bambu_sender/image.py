@@ -43,7 +43,8 @@ class CurrentPrintImage(SenderEntity, ImageEntity, RestoreEntity):
             "sensor", BAMBU_LAB_DOMAIN, f"{self.serial}_subtask_name")
         if self._task_entity:
             self.async_on_remove(async_track_state_change_event(self.hass, [self._task_entity], self._task_changed))
-        await self._load()
+        # Rendering a preview from a large G-code file takes seconds; setup must not wait for it.
+        self.hass.async_create_task(self._load())
 
     @callback
     def _task_changed(self, _event) -> None:
