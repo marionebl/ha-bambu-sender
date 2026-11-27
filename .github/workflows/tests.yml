@@ -16,7 +16,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-test.txt
       - name: System libraries (JPEG encoding in the camera tests)
-        run: sudo apt-get update -q && sudo apt-get install -y -q libturbojpeg0 ffmpeg
+        run: sudo apt-get update -q && sudo apt-get install -y -q libturbojpeg ffmpeg
       - run: pip install -r requirements-test.txt
       - name: HA integration
         run: python -m pytest tests
