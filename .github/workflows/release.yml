@@ -1,0 +1,21 @@
+name: Release
+# HACS shows GitHub release notes. A new manifest version gets a tag and a release.
+on:
+  push:
+    branches: [main]
+    paths: ['custom_components/*/manifest.json']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create the release if the version has none
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V=$(python3 -c "import json,glob;print(json.load(open(glob.glob('custom_components/*/manifest.json')[0]))['version'])")
+          if gh release view "v$V" >/dev/null 2>&1; then echo "v$V exists"; exit 0; fi
+          gh release create "v$V" --target "$GITHUB_SHA" --title "v$V" --generate-notes --latest
