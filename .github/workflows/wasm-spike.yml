@@ -1,0 +1,82 @@
+name: WASM slice spike
+on:
+  push:
+    branches: [wasm-slice-spike]
+  workflow_dispatch:
+jobs:
+  slice:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {id: h2s, model: H2S, model_id: O1S}
+          - {id: p1s, model: P1S, model_id: C12}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ENGINE_REPO: Muon-3D/muon3d-slicer-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - name: Fetch engine release, profile set and examples
+        run: |
+          node --version; uname -m; nproc
+          TAG=$(gh release list -R $ENGINE_REPO --exclude-pre-releases -L1 --json tagName -q '.[0].tagName')
+          echo "engine release: $TAG"
+          gh release view $TAG -R $ENGINE_REPO --json assets -q '.assets[]|"\(.size)\t\(.name)"'
+          mkdir -p w/dl && cd w
+          gh release download $TAG -R $ENGINE_REPO -D dl -p '*.tgz'
+          ls -la dl
+          for f in dl/*.tgz; do d=x/$(basename $f .tgz); mkdir -p $d; tar -xzf $f -C $d; done
+          git clone -q --depth 1 --branch $TAG https://github.com/$ENGINE_REPO.git engine-src
+          find x -maxdepth 3 -name manifest.json
+          find x -maxdepth 4 -name 'index.*.json'
+      - name: Locate runtime and profile set
+        run: |
+          cd w
+          RT=$(dirname "$(find x -maxdepth 3 -name manifest.json | head -1)")
+          IDX=$(dirname "$(find x -maxdepth 4 -name 'index.*.json' | head -1)")
+          echo "RT=$PWD/$RT" >> $GITHUB_ENV; echo "SET=$PWD/$IDX" >> $GITHUB_ENV
+          ls -la $RT | grep -E 'engine-|manifest|host'
+          grep -E '"version"' $RT/manifest.json | head -3
+      - name: Flatten ${{ matrix.model }} presets
+        run: node spike/wasm/flatten.mjs w/engine-src "$SET" ${{ matrix.id }} w/presets-${{ matrix.id }}.json
+      - name: Slice (st engine)
+        run: |
+          S=$(date +%s.%N)
+          node w/engine-src/examples/node-cli/slice.mjs tools/bambu-studio/test/test_plate_v3.1.stl \
+            --presets w/presets-${{ matrix.id }}.json -o w/${{ matrix.id }}-st.gcode --dist "$RT" --variant st 2>&1 | tee w/st.log
+          E=$(date +%s.%N)
+          echo "WALL_ST ${{ matrix.model }}: $(echo "$E - $S" | bc) s (process incl. startup)"
+          echo "$E - $S" | bc > w/st.secs
+      - name: Slice (mt engine, may fail)
+        continue-on-error: true
+        run: |
+          S=$(date +%s.%N)
+          node w/engine-src/examples/node-cli/slice.mjs tools/bambu-studio/test/test_plate_v3.1.stl \
+            --presets w/presets-${{ matrix.id }}.json -o w/${{ matrix.id }}-mt.gcode --dist "$RT" --variant mt 2>&1 | tee w/mt.log
+          E=$(date +%s.%N)
+          echo "WALL_MT ${{ matrix.model }}: $(echo "$E - $S" | bc) s (process incl. startup)"
+      - name: Pack, guard, postprocess
+        run: |
+          cd w
+          grep -E '^; (printer_model|printer_settings_id|filament_settings_id|print_settings_id|curr_bed_type) ' ${{ matrix.id }}-st.gcode || true
+          python3 ../spike/wasm/pack.py ${{ matrix.id }}-st.gcode presets-${{ matrix.id }}.json ${{ matrix.model_id }} ${{ matrix.id }}.gcode.3mf
+          cd ..
+          set +e
+          python3 tools/review/bin/check_gcode.py w/${{ matrix.id }}.gcode.3mf --printer ${{ matrix.model }}; G=$?
+          python3 tools/slicer/bin/postprocess.py w/${{ matrix.id }}.gcode.3mf ${{ matrix.model_id }}; P=$?
+          echo "GUARD_EXIT=$G POSTPROCESS_EXIT=$P"
+          SECS=$(cat w/st.secs)
+          echo "st wall ${SECS}s (limit 80)"
+          [ "$G" = 0 ] && [ "$P" = 0 ] && [ "$(echo "$SECS < 80" | bc)" = 1 ]
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gcode-3mf-${{ matrix.id }}
+          path: |
+            w/${{ matrix.id }}.gcode.3mf
+            w/*.log
+            w/presets-${{ matrix.id }}.json
