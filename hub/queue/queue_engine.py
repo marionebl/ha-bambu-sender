@@ -18,7 +18,7 @@ STARTABLE = {"idle", "finish", "failed"}  # print status values that allow a new
 NOT_A_TRAY = {"none", "unknown", "unavailable", ""}
 START_TIMEOUT = 600
 OPTIONS = {"timelapse": False, "bed_leveling": True, "use_ams": True}
-ACTIVE = ("queued", "starting", "printing")
+WAITING = ("queued", "pending_approval")  # not yet sent to a printer
 
 
 class QueueError(Exception):
@@ -40,12 +40,14 @@ def _tray_ok(v):
 
 class Queue:
     def __init__(self, registry, data_dir, get_state, call_service, get_trays=None,
-                 clock=time.time, start_timeout=START_TIMEOUT):
+                 clock=time.time, start_timeout=START_TIMEOUT, job_allowed=None):
         self.registry = registry
         self.path = os.path.join(data_dir, "queue.json")
         self.get_state, self.call_service = get_state, call_service
         self.get_trays = get_trays or (lambda serial: [])
         self.clock, self.start_timeout = clock, start_timeout
+        # job_allowed(job, serial) lets the access layer veto a job at start time (grant lapsed).
+        self.job_allowed = job_allowed
         self.lock = threading.RLock()
         self.jobs, self.history = [], []
         # changing_filament lasts ~1 s, shorter than a poll; observe() latches it per serial.
@@ -73,7 +75,8 @@ class Queue:
         self.history.append(job)
 
     # -- jobs --
-    def add(self, file, source="", target="any", model="", filaments=None, options=None):
+    def add(self, file, source="", target="any", model="", filaments=None, options=None,
+            owner_user_id=None, owner_name="", pending=False):
         if not str(file or "").endswith(".gcode.3mf") or "/" in file or ".." in file:
             raise ValueError("file must be a .gcode.3mf name in the share")
         target = self._check_target(target, model)
@@ -89,7 +92,9 @@ class Queue:
             fil.append({"type": str(f["type"]), "colour": f.get("colour") or ""})
         job = {"id": secrets.token_hex(6), "file": file, "source": source or file,
                "target": target, "model": model if target == "any" else "",
-               "filaments": fil, "options": opts, "state": "queued", "error": None,
+               "filaments": fil, "options": opts, "error": None,
+               "state": "pending_approval" if pending else "queued",
+               "owner_user_id": owner_user_id, "owner_name": owner_name,
                "created_at": self.clock()}
         with self.lock:
             self.jobs.append(job)
@@ -104,26 +109,30 @@ class Queue:
             raise ValueError("unknown printer")
         return target
 
-    def reorder(self, job_id, position):
-        """position is 0-based among queued jobs."""
+    def reorder(self, job_id, position, owner=None):
+        """position is 0-based among the waiting jobs, or among the owner's when owner is given.
+        The jobs are permuted within the slots they already hold, so nobody else moves."""
         with self.lock:
             job = self._find(job_id)
-            if job["state"] != "queued":
-                raise QueueError("only queued jobs can be reordered")
-            queued = [j for j in self.jobs if j["state"] == "queued"]
-            queued.remove(job)
-            position = max(0, min(int(position), len(queued)))
-            queued.insert(position, job)
-            it = iter(queued)
-            self.jobs = [next(it) if j["state"] == "queued" else j for j in self.jobs]
+            if job["state"] not in WAITING:
+                raise QueueError("only waiting jobs can be reordered")
+            slots = [i for i, j in enumerate(self.jobs)
+                     if j["state"] in WAITING and (owner is None or j.get("owner_user_id") == owner)]
+            pool = [self.jobs[i] for i in slots]
+            if job not in pool:
+                raise QueueError("job is not in this reorder scope")
+            pool.remove(job)
+            pool.insert(max(0, min(int(position), len(pool))), job)
+            for i, j in zip(slots, pool):
+                self.jobs[i] = j
             self._save()
             return job
 
     def move(self, job_id, target, model=""):
         with self.lock:
             job = self._find(job_id)
-            if job["state"] != "queued":
-                raise QueueError("only queued jobs can be moved")
+            if job["state"] not in WAITING:
+                raise QueueError("only waiting jobs can be moved")
             job["target"] = self._check_target(target, model or job["model"])
             job["model"] = (model or job["model"]) if target == "any" else ""
             self._save()
@@ -132,7 +141,7 @@ class Queue:
     def cancel(self, job_id):
         with self.lock:
             job = self._find(job_id)
-            if job["state"] != "queued":
+            if job["state"] not in WAITING:
                 raise QueueError("a started job runs on the printer; stop it there")
             self._finish(job, "cancelled")
             self._save()
@@ -153,6 +162,35 @@ class Queue:
             self._save()
             return job
 
+    def approve(self, job_id):
+        with self.lock:
+            job = self._find(job_id)
+            if job["state"] != "pending_approval":
+                raise QueueError("job is not waiting for approval")
+            job["state"] = "queued"
+            self._save()
+            return job
+
+    def reject(self, job_id):
+        with self.lock:
+            job = self._find(job_id)
+            if job["state"] != "pending_approval":
+                raise QueueError("job is not waiting for approval")
+            self._finish(job, "cancelled", "rejected")
+            self._save()
+            return job
+
+    def skip(self, job_id):
+        """Send a waiting job to the end of the queue."""
+        with self.lock:
+            job = self._find(job_id)
+            if job["state"] not in WAITING:
+                raise QueueError("only waiting jobs can be skipped")
+            self.jobs.remove(job)
+            self.jobs.append(job)
+            self._save()
+            return job
+
     # -- matching --
     def _filaments_fit(self, job, serial):
         # Each wanted filament needs its own tray of the same type and colour.
@@ -165,17 +203,20 @@ class Queue:
             free.remove(hit)
         return True
 
+    def _fits(self, job, serial, printer):
+        if job["target"] == serial:
+            return True
+        return (job["target"] == "any" and job["model"].lower() == printer["model"].lower()
+                and self._filaments_fit(job, serial))
+
     def next_for(self, serial):
         printer = self.registry.get(serial)
         if not printer:
             return None
         for job in self.jobs:
-            if job["state"] != "queued":
-                continue
-            if job["target"] == serial:
-                return job
-            if (job["target"] == "any" and job["model"].lower() == printer["model"].lower()
-                    and self._filaments_fit(job, serial)):
+            # pending_approval is skipped here: only an admin's approval makes a job startable.
+            if job["state"] == "queued" and self._fits(job, serial, printer) \
+                    and (not self.job_allowed or self.job_allowed(job, serial)):
                 return job
         return None
 
@@ -184,7 +225,7 @@ class Queue:
                      and j.get("printer") == serial), None)
 
     # -- start --
-    def start(self, serial, plate_clear=False):
+    def start(self, serial, plate_clear=False, job_id=None):
         # Only a person starts a print, after confirming the plate is clear.
         if plate_clear is not True:
             raise QueueError("confirm that the plate is clear")
@@ -198,7 +239,13 @@ class Queue:
             status = self.get_state(ent["print_status"])
             if status not in STARTABLE:
                 raise QueueError("printer is not ready (status: %s)" % status)
-            job = self.next_for(serial)
+            if job_id:
+                # Explicit pick by an admin: skips the queue order and the owner's grant check.
+                job = self._find(job_id)
+                if job["state"] != "queued" or not self._fits(job, serial, printer):
+                    raise QueueError("that job is not queued or does not fit this printer")
+            else:
+                job = self.next_for(serial)
             if not job:
                 raise QueueError("no queued job fits this printer")
             err = self._send(printer, serial, job)
